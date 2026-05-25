@@ -290,11 +290,15 @@ export async function testSite() {
 //--------> frontend
 
 export async function getSites() {
-  const { user, error: e1 } = await validateSession();
-  if (e1) return { error: e1 };
+  const { user } = await validateSession();
 
   const { userSites, error: e2 } = await getUserSites({ user });
-  if (e2) return { error: e2 };
+
+  if (!userSites && e2) {
+    const u = { cron: process?.env?.VCRON, active: true };
+
+    return { userSites: [{ site: await safeSite(process?.env?.VSITE), ...u }] };
+  }
 
   return { userSites };
 }

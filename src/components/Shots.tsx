@@ -24,7 +24,6 @@ import {
   timePeriod,
   unviewedType,
 } from "@/lib/types";
-import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import React, {
   Dispatch,
   SetStateAction,
@@ -36,13 +35,19 @@ import React, {
 } from "react";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
-import { motion } from "framer-motion";
-import { SelectedViewer } from "./SelectedViewer";
+import { AnimatePresence, motion, spring, Transition } from "framer-motion";
+import SelectedViewer from "./SelectedViewer";
 import { preserveScrollType, usePreserveScroll } from "@/lib/usePreserveScroll";
 import { delShot, getDbShotKeys, getUnviewedIds } from "@/lib/actions";
 import { formatDate } from "@/lib/dateformatter";
 import { useQueryClient } from "@tanstack/react-query";
 import Gallery from "./Gallery";
+import { useErrContext } from "@/app/(main)/ErrContext";
+import { cn } from "@/lib/utils";
+
+export async function filterPromise(p: Promise<file | undefined>[]) {
+  return (await Promise.all(p)).filter((p) => p != undefined);
+}
 
 type state = {
   value: boolean;
@@ -103,6 +108,7 @@ function Shots({
   const { shotsLoading, shotsError, shots, ...r } = useQueryShots(site);
   const { shotsRefetch, shotsRefetching, fetchNextShots, fetchPrevShots } = r;
   const { mutateDelErr, mutateDel, delReset, mutatingDel } = useMutateDel(site); //setShots deleting
+  const { setErrBody } = useErrContext();
   const { swiperRefs } = preserveScroll;
 
   //siteShots will update when shots is defined; useMemo prevents recomputation on [non shots changed] rerenders
@@ -113,6 +119,7 @@ function Shots({
 
   //updates localUnviewed used in Navbar
   useEffect(() => {
+    if (!siteShots) return;
     console.log("In Shots: useEffect ran");
     const localUnviewed = siteShots?.filter((s) => !s.viewed).map((s) => s.id);
     onlocalUnviewed(localUnviewed!);
@@ -120,11 +127,11 @@ function Shots({
 
   //Fetches new shots from db every 1 min; Throws when !rows
   //Should fetch if noMoreShots -- else the user hasn't scrolled to latest;
-
   useEffect(() => {
     timerRef.current = setInterval(async () => {
       try {
-        if (!shots) throw "Shots haven't loaded. Will rerun in next Minute";
+        if (!shots) throw "Shots haven't loaded. Will refetch in next Minute";
+
         const noMoreNext = shots?.pages?.at(-1)?.noMoreNext;
         if (!noMoreNext) throw "User is behind on stored shots";
         const { error } = await fetchNextShots();
@@ -174,6 +181,7 @@ function Shots({
 
   const refreshShots = useCallback(async () => {
     try {
+      setErrBody({});
       const { error } = await shotsRefetch();
       if (error) throw error;
     } catch (e) {
@@ -182,7 +190,7 @@ function Shots({
     }
   }, []);
 
-  //Gets unviewedCount: if filters out shots change from onPrevShot or refetch
+  //Gets unviewedCount: if filters out shots change from refetch
   //Will update optimistically on viewed since mutateViewed alters shots > siteShots
   //notOpenedShot: the current openedshot is not new; mutatingDel: true while deleting shot; newShots: true after recent shots fetch; shotsLoading: true for init shots fetch;
   useEffect(() => {
@@ -194,18 +202,19 @@ function Shots({
       onAllSitesUnvieweds({ delIds });
     }
 
-    try {
-      (async () => {
+    (async () => {
+      try {
         //WIll set to retrieve id[] of count.
         const { error, allSitesUnvieweds } = await getUnviewedIds(); // Main.Page filters for site unvieweds
         if (error || !allSitesUnvieweds) throw error;
 
         onAllSitesUnvieweds({ allSitesUnvieweds });
         if (openedShot) setPrevOpenedShotId(openedShot?.id);
-      })();
-    } catch (e) {
-      console.error("In Shots getUnviewedIds: ", e);
-    }
+      } catch (e) {
+        // console.error("In Shots getUnviewedIds: ", e);
+        //display error?
+      }
+    })();
   }, [siteShots, shotsLoading, openedShot?.id]);
 
   //HandleDelShot -- handles del in both gallery and selectedViewer
@@ -214,7 +223,7 @@ function Shots({
       ids = Array.isArray(ids) ? ids : [ids];
 
       setDelIds(ids);
-      const { error } = await mutateDel(ids); //calls mutateShots fn
+      const { error } = await mutateDel(ids); //optimistically deletes from local then db
       if (error) throw error;
     } catch (e: any) {
       console.error("in handleDeleteShot: ", e);
@@ -222,54 +231,45 @@ function Shots({
     }
   }, []);
 
-  //effects for download triggers called in NavBar or context menu -- create context menu
-  //triggered in Navbar?; able to run here with current shot/slide id from swiper instance -- grid implementation should have curr slide instance
+  //effects for download triggers from NavBar or context menu -- create context menu
   useEffect(() => {
-    if (!downloadTimePeriod) return;
+    if (!downloadTimePeriod.from) return;
     const { from, to } = downloadTimePeriod;
     handleDownloadTimePeriod({ from, to });
-  }, [downloadTimePeriod]);
+  }, [downloadTimePeriod.from]);
 
   useEffect(() => {
     //refixing to allow local unviewed download with prop
-    if (!downloadUnviewedAfterCurr) return;
+    if (!downloadUnviewedAfterCurr.unique) return;
     const { local } = downloadCurrShotAndAfter;
     handleDownloadUnviewedAfterCurrent({ local });
   }, [downloadUnviewedAfterCurr.unique]);
 
   useEffect(() => {
-    if (!downloadUnviewedBeforeCurr) return;
+    if (!downloadUnviewedBeforeCurr.unique) return;
     const { local } = downloadCurrShotAndBefore;
     handleDownloadUnviewedBeforeCurrent({ local });
   }, [downloadUnviewedBeforeCurr.unique]);
 
   useEffect(() => {
-    if (!downloadCurrShotAndBefore) return;
+    if (!downloadCurrShotAndBefore.unique) return;
     const { local } = downloadCurrShotAndBefore;
     handleDownloadCurrentShotAndBefore({ local });
   }, [downloadCurrShotAndBefore.unique]);
 
   useEffect(() => {
-    if (!downloadCurrShotAndAfter) return;
+    if (!downloadCurrShotAndAfter.unique) return;
     const { local } = downloadCurrShotAndAfter;
     handleDownloadCurrentShotAndAfter({ local });
   }, [downloadCurrShotAndAfter.unique]);
 
   //downloadSelectedShots fn in Gallery
 
-  useEffect(() => {
-    if (!mutateDelErr) return;
-    console.log("in Shots: Error trying to del multiShots!", mutateDelErr);
-    //setError
-  }, [mutateDelErr]);
-
   //downloadCache helper, returns the shotBinary or Html in file format
   const getDownloadCache = useCallback(
-    //can I pass this fn as a prop and it calls  useQueryClient() the same way
+    //can I pass this fn as a prop and it calls  useQueryClient() the same way? or perhaps aspects about queryClient go stale?
     async ({ key, date, isHtml }: getDownloadCache) => {
-      //can handle HTML -- when !isShot;
-      //abstract in download fn
-      //check cache presence
+      if (!key || !date) return;
       const queryClient = useQueryClient();
       let cache: any;
       if (!isHtml) cache = queryClient.getQueryData([site, "downloadShots"])!;
@@ -278,7 +278,7 @@ function Shots({
       //format 'isShot/user/site_date_time' to 'site date time';
       const fileName = key.split("/").slice(2).join().replace(/_/g, " ");
       const fileType = isHtml ? "text/html" : "image/png";
-      let fileData = cache[key];
+      let fileData = cache?.[key];
 
       // is image
       if (!fileData && !isHtml)
@@ -296,6 +296,7 @@ function Shots({
   //localUnviewedShots helper: gets the unviewed keys from loaded shots
   const getLocaluvShotKeys = useCallback(
     ({ id, next }: cursor) => {
+      if (!siteShots) return;
       const uvShotKeys0 = siteShots?.filter((s) => !s.viewed)!;
       const uvShotKeys1 = uvShotKeys0.filter((u) =>
         next ? u.id > id - 1 : u.id < id + 1,
@@ -321,12 +322,16 @@ function Shots({
 
         if (local) {
           //get local unvieweds
-          const uvShotData = getLocaluvShotKeys({ id, next: true }).uvShotData; //this returns {key, date}
+          const uvShotData = getLocaluvShotKeys({ id, next: true })?.uvShotData; //this returns {key, date}
+          if (!uvShotData) return;
+
           const uvPromise = uvShotData.map((u) =>
             getDownloadCache({ key: u.key, date: u.date }),
           );
-          const uvShots = await Promise.all(uvPromise);
-          const { error: e1 } = await download(uvShots);
+
+          const uvShots = await filterPromise(uvPromise);
+
+          const { error: e1 } = await download(uvShots as file[]);
           if (e1) throw e1;
         } else {
           //get db unvieweds
@@ -338,8 +343,10 @@ function Shots({
           const uvPromise = dShotData.map((d) =>
             getDownloadCache({ key: d.shotKey, date: d.date }),
           );
-          const uvShots = await Promise.all(uvPromise);
-          const { error: e3 } = await download(uvShots);
+
+          const uvShots = await filterPromise(uvPromise);
+
+          const { error: e3 } = await download(uvShots as file[]);
           if (e3) throw e3;
         }
       } catch (e: any) {
@@ -357,12 +364,14 @@ function Shots({
         id = id ? id + 1 : selectedShots.at(-1)?.id! + 1; //will throw if undefined!
 
         if (local) {
-          const { uvShotData: uSD } = getLocaluvShotKeys({ id, next: false });
+          const uSD = getLocaluvShotKeys({ id, next: false })?.uvShotData;
+          if (!uSD) throw "No local unviewed shots!";
+
           const uvPromise = uSD.map((u) =>
             getDownloadCache({ key: u.key, date: u.date }),
           );
-          const uvShots = await Promise.all(uvPromise);
-          const { error: e1 } = await download(uvShots);
+          const uvShots = await filterPromise(uvPromise);
+          const { error: e1 } = await download(uvShots as file[]);
           if (e1) throw e1;
         } else {
           const uvProp = { site, cursor: { id, next: false }, unviewed: true };
@@ -372,12 +381,15 @@ function Shots({
           const uvPromise = dSD.map((d) =>
             getDownloadCache({ key: d.shotKey, date: d.date }),
           );
-          const uvShots = await Promise.all(uvPromise);
-          const { error: e3 } = await download(uvShots);
+
+          const uvShots = await filterPromise(uvPromise);
+
+          const { error: e3 } = await download(uvShots as file[]);
           if (e3) throw e3;
         }
       } catch (e) {
         console.error("in handleDownloadUnviewedAfterCurrent: ", e);
+        //errBody
       }
     },
     [site, selectedShots],
@@ -390,19 +402,19 @@ function Shots({
       try {
         const timeProps = { timePeriod: { from, to }, site };
         const { error: e1, dShotData: dSD } = await getDbShotKeys(timeProps);
-        if (e1) throw { error: e1 };
+        if (e1) throw e1;
 
         const tPromises = dSD.map((d) =>
           getDownloadCache({ key: d.shotKey, date: d.date }),
         );
-        const tShots = await Promise.all(tPromises);
-        const { error } = await download(tShots);
+        const tShots = await filterPromise(tPromises);
+        const { error } = await download(tShots as file[]);
         if (error) throw { error };
       } catch (e) {
         console.error("in handleDownloadTimePeriod: ", e);
       }
     },
-    [],
+    [site],
   );
 
   const handleDownloadCurrentShotAndAfter = useCallback(
@@ -417,8 +429,8 @@ function Shots({
           const cPromise = cSD.map((c) =>
             getDownloadCache({ key: c.shotKey, date: c.date }),
           );
-          const cShots = await Promise.all(cPromise);
-          const { error: e1 } = await download(cShots);
+          const cShots = await filterPromise(cPromise);
+          const { error: e1 } = await download(cShots as file[]);
           if (e1) throw e1;
         } else {
           //get shotKeys from db and then binary data
@@ -429,8 +441,8 @@ function Shots({
           const cPromise = dShotData.map((c) =>
             getDownloadCache({ key: c.shotKey, date: c.date }),
           );
-          const cShots = await Promise.all(cPromise);
-          const { error: e3 } = await download(cShots);
+          const cShots = await filterPromise(cPromise);
+          const { error: e3 } = await download(cShots as file[]);
           if (e3) throw e3;
         }
       } catch (e) {
@@ -451,8 +463,8 @@ function Shots({
           const cPromise = cSD.map((c) =>
             getDownloadCache({ key: c.shotKey, date: c.date }),
           );
-          const cShots = await Promise.all(cPromise);
-          const { error: e1 } = await download(cShots);
+          const cShots = await filterPromise(cPromise);
+          const { error: e1 } = await download(cShots as file[]);
           if (e1) throw e1;
         } else {
           const cProp = { site, cursor: { id, next: false } };
@@ -462,8 +474,8 @@ function Shots({
           const cPromise = dShotData.map((c) =>
             getDownloadCache({ key: c.shotKey, date: c.date }),
           );
-          const cShots = await Promise.all(cPromise);
-          const { error: e3 } = await download(cShots);
+          const cShots = await filterPromise(cPromise);
+          const { error: e3 } = await download(cShots as file[]);
           if (e3) throw e3;
         }
       } catch (e) {
@@ -474,24 +486,39 @@ function Shots({
     [siteShots],
   );
 
+  // Log error from shotsError
+  useEffect(() => {
+    if (!shotsError) return;
+
+    const e = { label: "Shots Error", msg: shotsError.error };
+    setErrBody({ ...e, fn: shotsRefetch, fnName: "reFetch" });
+  }, [shotsError]);
+
+  useEffect(() => {
+    if (!mutateDelErr) return;
+    console.log("in Shots: Error trying to del multiShots!", mutateDelErr);
+    setErrBody({ label: "Delete Shots Error!", msg: mutateDelErr.error });
+  }, [mutateDelErr]);
+
+  const timing: Transition = { type: "spring", damping: 10, stiffness: 80 };
+
   return (
-    <main className="flex flex-1 flex-col lg:flex-row">
-      {/* Loading State */}
-      {(shotsLoading || shotsRefetching) &&
-        !siteShots?.length && ( //will not work for shotsRefetching as siteShots is defined.
+    <main className="flex min-h-0 flex-1 flex-col bg-white lg:flex-row">
+      {/* CHANGE to skeleton in gallery */}
+      {/* {(shotsLoading || shotsRefetching) &&
+        !siteShots?.length && ( //will not work for shotsRefetching as siteShots is defined -- good
           <div className="flex flex-1 items-center justify-center">
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="text-primary h-8 w-8 animate-spin" />
-              {/* Show card skeletons instead */}
               <p className="text-muted-foreground font-black">
                 Loading Shots...
               </p>
             </div>
           </div>
-        )}
+        )} */}
 
-      {/* no Shots Error State */}
-      {shotsError && !shotsLoading && !shotsRefetching && (
+      {/* DEL: Handling error in err dialog now */}
+      {/* {shotsError && !shotsLoading && !shotsRefetching && (
         <div className="flex flex-1 items-center justify-center p-8">
           <Alert
             variant="destructive"
@@ -512,10 +539,10 @@ function Shots({
             </AlertDescription>
           </Alert>
         </div>
-      )}
+      )} */}
 
-      {/* No shots */}
-      {!shotsLoading && !shotsError && !siteShots?.length && (
+      {/* Del -- no shots for site, do not need to set cron. */}
+      {/* {!shotsLoading && !shotsError && !siteShots?.length && (
         <div className="flex flex-1 items-center justify-center p-8">
           <div className="text-center">
             <h2 className="text-xl font-semibold">No shots here</h2>
@@ -525,105 +552,113 @@ function Shots({
             </Button>
           </div>
         </div>
-      )}
+      )} */}
 
-      {/* Content Layout */}
-      {!shotsLoading && !shotsError && siteShots?.length! > 0 && (
-        <>
-          {/* Mobile: Stacked Layout */}
-          <div className="flex flex-col lg:hidden">
-            {/* Selected Viewer - Top Half on Mobile */}
+      {/* Content Layout -- removed siteShots check, so can show skeleton if !siteShots */}
+      {/* Mobile: Stacked Layout */}
+      <motion.div layout className="flex flex-col lg:hidden">
+        {/* Selected Viewer - Top Half on Mobile */}
+        <AnimatePresence>
+          {openedShot && (
             <motion.div
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ ...timing, duration: 0.5 }}
+              layout
               className="border-border/50 h-[50vh] border-b p-4"
             >
               <SelectedViewer
                 shot={openedShot}
                 onClose={() => setOpenedShot(undefined)}
                 getDownloadCache={getDownloadCache}
-                onDeleteShot={handleDeleteShot}
+                onDelete={handleDeleteShot}
               />
             </motion.div>
+          )}
+        </AnimatePresence>
 
-            {/* Gallery - Bottom Half on Mobile */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex-1 p-4"
-            >
-              <Gallery
-                siteShots={siteShots}
-                site={site || ""}
-                openedShot={openedShot}
-                onOpenedShot={setOpenedShot}
-                onDeleteShot={handleDeleteShot}
-                preserveScroll={preserveScroll}
-                delSelectedShots={deleteSelectedShots}
-                downloadSelectedShots={downloadSelectedShots}
-                viewSelectedShots={viewSelectedShots}
-                selectedShots={selectedShots}
-                onSelectedShots={onSelectedShots}
-                getDownloadCache={getDownloadCache}
-              />
-            </motion.div>
-          </div>
+        {/* Gallery - Bottom Half on Mobile */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...timing, duration: 0.5 }}
+          className="min-h-0 flex-1 p-4"
+        >
+          <Gallery
+            siteShots={siteShots}
+            site={site || ""}
+            openedShot={openedShot}
+            onOpenedShot={setOpenedShot}
+            onDeleteShot={handleDeleteShot}
+            preserveScroll={preserveScroll}
+            delSelectedShots={deleteSelectedShots}
+            downloadSelectedShots={downloadSelectedShots}
+            viewSelectedShots={viewSelectedShots}
+            selectedShots={selectedShots}
+            onSelectedShots={onSelectedShots}
+            getDownloadCache={getDownloadCache}
+          />
+        </motion.div>
+      </motion.div>
 
-          {/* Desktop: Side by Side Layout */}
-          <div className="hidden flex-1 lg:flex">
-            {/* Gallery - Center */}
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="border-border/50 flex-1 border-r p-6"
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Shots</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={refreshShots}
-                  disabled={shotsLoading || shotsRefetching}
-                  className="gap-2"
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${shotsLoading ? "animate-spin" : ""}`}
-                  />
-                  Refresh
-                </Button>
-              </div>
-              <Gallery
-                siteShots={siteShots}
-                site={site || ""}
-                openedShot={openedShot}
-                onOpenedShot={setOpenedShot}
-                preserveScroll={preserveScroll}
-                onDeleteShot={handleDeleteShot}
-                delSelectedShots={deleteSelectedShots}
-                downloadSelectedShots={downloadSelectedShots}
-                viewSelectedShots={viewSelectedShots}
-                selectedShots={selectedShots}
-                onSelectedShots={onSelectedShots}
-                getDownloadCache={getDownloadCache}
-              />
-            </motion.div>
+      {/* Desktop: Side by Side Layout */}
+      <motion.div
+        id="Section Container"
+        layout
+        transition={{ ...timing, duration: 0.5 }}
+        className="hidden flex-1 lg:flex"
+      >
+        {/* Gallery -- Centralise until openedShot , then reveal selectedViewer  */}
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          layout
+          className={cn(
+            "border-border/50 bg-background p-6",
+            openedShot ? "border-r lg:w-[55%] lg:flex-none" : "flex-1",
+          )}
+        >
+          <Gallery
+            //Modifying Layout: use openedshot as trigger for how many slides are rendered -- can still be same amount.
+            //But not so for mobile, which is still the same ammount of slides, just centered instead of to the top.
+            siteShots={siteShots}
+            site={site}
+            openedShot={openedShot}
+            onOpenedShot={setOpenedShot}
+            preserveScroll={preserveScroll}
+            onDeleteShot={handleDeleteShot}
+            delSelectedShots={deleteSelectedShots}
+            downloadSelectedShots={downloadSelectedShots}
+            viewSelectedShots={viewSelectedShots}
+            selectedShots={selectedShots}
+            onSelectedShots={onSelectedShots}
+            getDownloadCache={getDownloadCache}
+          />
+        </motion.div>
 
-            {/* Selected Viewer - Right Column */}
+        {/* Selected Viewer - Right Column */}
+        <AnimatePresence>
+          {openedShot && (
             <motion.div
+              id="SelectedViewer Container"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="w-[45%] max-w-2xl p-6"
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ ...timing, duration: 0.5 }}
+              layout
+              className="w-[45%] p-6"
             >
               <SelectedViewer
                 shot={openedShot}
                 onClose={() => setOpenedShot(undefined)}
                 getDownloadCache={getDownloadCache}
-                onDeleteShot={handleDeleteShot}
+                onDelete={handleDeleteShot}
               />
             </motion.div>
-          </div>
-        </>
-      )}
+          )}
+        </AnimatePresence>
+      </motion.div>
     </main>
   );
 }

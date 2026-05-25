@@ -119,7 +119,7 @@ export default function HomePage() {
     if (!sites?.length) return;
     handleSelectSite(sites[0]);
     //can load userSettings.lastSite
-  }, []);
+  }, [sites?.length]);
 
   //Old and inneficient: Gets the real value of site's unvieweds shots upon optimisiticUnviewed change, then updates if different -- shots may be incomplete (can only get count from db and then alter)
   // useEffect(() => {
@@ -236,7 +236,7 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="bg-background flex min-h-screen flex-col">
+    <div className="bg-background flex h-screen w-screen flex-col">
       {/* Navbar */}
       <Navbar
         //create contextMenu for these functions in Shots > gallery
@@ -265,7 +265,6 @@ export default function HomePage() {
       <Shots
         refresh={refreshingSites!}
         site={selectedSite?.site || ""}
-        onAddSite={handleAddSite}
         preserveScroll={preserveScroll}
         deleteSelectedShots={deleteSelectedShots}
         downloadTimePeriod={downloadTimePeriod}
@@ -276,6 +275,7 @@ export default function HomePage() {
         selectedShots={selectedShots}
         downloadSelectedShots={downloadSelectedShots}
         viewSelectedShots={viewSelectedShots}
+        onAddSite={handleAddSite}
         onlocalUnviewed={setlocalUnviewed}
         onAllSitesUnvieweds={handleAllSitesUnvieweds}
         onSelectedShots={setSelectedShots}

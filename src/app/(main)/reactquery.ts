@@ -181,7 +181,7 @@ export function useMutateViewed(site: string) {
 
   return {
     mutateViewed: mutateViewed.mutateAsync,
-    mutateViwedErr: mutateViewed.error,
+    mutateViewedErr: mutateViewed.error,
     mutatingViewed: mutateViewed.isPending,
     resetViewed: mutateViewed.reset, //clears flags: errors and prevData
   };
@@ -281,8 +281,12 @@ export function useQuerySites() {
   const sitesQuery = useQuery<siteData[], { error: string }>({
     queryKey: ["sites"],
     queryFn: async () => {
-      const userSites = (await getSites()).userSites as siteData[];
-      return userSites;
+      const { userSites } = await getSites();
+
+      if (!userSites) throw { error: "No userSites!" };
+
+      console.log("In useQuerSites", { userSites });
+      return userSites as siteData[];
     },
     staleTime: Infinity,
   });

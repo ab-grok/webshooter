@@ -3,7 +3,7 @@
 "use client";
 import { ErrDialog } from "@/components/ErrorDialog";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RootLayoutContext } from "./rootcontext";
+import { ErrContext } from "./ErrContext";
 const queryClient = new QueryClient();
 
 // // Client-side (not Worker)
@@ -21,10 +21,10 @@ export default function MainLayout({
   return (
     <div className="relative flex h-full w-full">
       <QueryClientProvider client={queryClient}>
-        <RootLayoutContext>
+        <ErrContext>
           <ErrDialog />
           {children}
-        </RootLayoutContext>
+        </ErrContext>
       </QueryClientProvider>
     </div>
   );

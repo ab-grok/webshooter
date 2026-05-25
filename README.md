@@ -1,63 +1,126 @@
-## About App
+# WebShooter
 
-#### `Name`: WebShooter
+Short description
 
-#### `Description`: Takes screenshots of webpages for you while you do other things 👌 :blue_heart:
+- **WebShooter** takes scheduled screenshots of configured webpages, stores shot metadata in Postgres and an external bucket, and provides a Next.js UI for browsing, selecting, downloading and managing captured shots.
 
----
+Quick links
 
----
-
-### Important Operational Parameters:
-
-#### `MaxCrons`: This is the maximum number of crons a user can set (1 for now)
-
-#### `SafeAddCron`: This checks the cron schedule variation against the max number of cron schedules offered in CloudFlare's worker free tier (5);
-
-#### `note`: Max cron schedules is 5 but any one of these can cater to a larger number of users (limited by the TTL of invoked worker - 10ms in free tier).
-
-#### `SafeAddSite`: This checks the maxi...
+- Code: [package.json](package.json)
+- Server logic / DB interaction: [src/lib/server.js](src/lib/server.js)
+- Frontend gallery / swiper: [src/components/Gallery.tsx](src/components/Gallery.tsx)
+- Scroll-preserve helper: [src/lib/usePreserveScroll.ts](src/lib/usePreserveScroll.ts)
+- Main page wiring (state passed to Shots/Gallery): [src/app/(main)/page.tsx](<src/app/(main)/page.tsx>)
+- Shots component: [src/components/Shots.tsx](src/components/Shots.tsx)
+- Actions (session, site scheduling): [src/lib/actions.ts](src/lib/actions.ts)
 
 ---
 
----
+## Table of contents
 
-### Database structure:
-
-#### `private.settings`: sets maxCrons (total app cron limit), storeDuration (in days), admin notifications (Error logs)
-
-#### `User sites`: share a shot_url column unlike {site}\_html_key, {site}\_shot_key which are per site.
-
-### DB query Functions to rateLimit:
-
-#### `getUnviewedIds`: (main)/page.tsx
-
----
-
----
-
-### Potential Operational flaws
-
-#### `Effects with deps (download*)` are triggered by number mutations and not reset to null -- which may be problematic in special cases.
-
-#### `Global restore position`: function for switching to prev active slide after mutation set in Gallery.tsx
-
-#### `Limited Shots Download`: Vercel API payload cap is 4.5mb, this means at most a single image data from R2 can be retrieved -- requiring much invocations.
-
-#### `Worker redeployents`: Future redeployments will clear the previous state including added crons. But it is needed to update useragent string -- will need to performm restore from db.
+- About
+- Features
+- Requirements
+- Environment variables
+- Local development (install & run)
+- Deploy
+- Important operational parameters
+- Database & schema notes
+- Architecture & data flow
+- Troubleshooting & known issues
+- Security notes
+- Contributing
 
 ---
 
+## About
+
+- **Name**: WebShooter
+- **Purpose**: Periodic screenshot capture of configured sites, store metadata and binary/html assets, enable viewing and bulk download in the UI.
+
+## Features
+
+- User session management and site scheduling (cron-like worker model).
+- Screenshot ingestion via an external shooter service; metadata stored in Postgres.
+- Paginated gallery with selection, download, and deletion features.
+- Slide position preservation across site switches using `usePreserveScroll`.
+
 ---
 
-### Access Privileges
+## Requirements
 
-#### `Settings table`: holds maxCrons:text, storeDays:number, admin:[] (admins(uuid) here can modify Settings and access errorLogs);
+- Node 18+ (use the latest LTS recommended)
+- Postgres database accessible from the app
+- Optional: external shooter service (R2/bucket) endpoint
+- See runtime dependencies in [package.json](package.json)
 
 ---
 
+## Environment variables
+
+Required / commonly used environment variables:
+
+- `DB_CONN` — Postgres connection string used by `src/lib/server.js`.
+- `SHOOTER_URL` — external shooter API endpoint (used for R2 interactions and deletes).
+- `SHOOTER_KEY` — secret key for shooter service (if configured).
+- `VSITE`, `VTB` — visitor/default test site and visitor table names used in server logic.
+- `NODE_ENV` — set to `production` in production to toggle secure cookie behavior.
+
+Example `.env` for local development:
+
+```bash
+DB_CONN=postgres://user:pass@localhost:5432/webshooter
+SHOOTER_URL=https://my-shooter.example.com/api
+SHOOTER_KEY=your-shooter-key
+VSITE=example.com
+VTB=visitor_table_name
+NODE_ENV=development
+```
+
 ---
 
-### Security flaws (potential)
+## Important operational parameters
 
-#### `getShots`: sends 'htmlKey' to client, which can be used to access user shotdata from R2 bucket. Mitigating this through signed API validation in worker. ~can encrypt htmlKey on db write and send that instead~
+- **MaxCrons**: application limit for cron schedules (configured in `private.settings`).
+- **SafeAddCron / SafeAddSite**: server-side checks when scheduling crons/sites (see `updateCronTable` and `updateUserSites` in `src/lib/server.js`).
+- **storeDuration**: per-user retention in days; older shots are purged and corresponding remote assets are deleted via the shooter service (see `delPrevEntry` and `deleteR2Shot`).
+
+---
+
+## Database & schema notes
+
+- **User tables**: Per-user tables are created/altered dynamically by `updateShotSchema` and have columns like `viewed`, `key_expires`, `shot_url`, and `{site}_shot_key` / `{site}_html_key`.
+- **Metadata**: App-level metadata stored in `private.*` tables: `private.settings`, `private.crons`, `private.users`.
+
+---
+
+## Architecture & data flow
+
+1. External shooter service captures screenshots and stores binary/html assets in a storage bucket.
+2. Shooter service notifies the server (or server pulls) with keys; server writes metadata to Postgres.
+3. Frontend uses React Query hooks to paginate shots and display them in `Gallery` using `Swiper`.
+4. Delete flows call the shooter service endpoint to remove remote assets and update DB rows.
+
+---
+
+## Swiper-specific tips
+
+- Use `slidesPerView="auto"` and `key={site}` when experimenting with effect props to force remounts during dev.
+- Prefer `onReachBeginning` / `onReachEnd` or `onSlideChangeTransitionEnd` for fetch triggers instead of `onSlideChange` while dragging.
+- Move scrollbar location via CSS or add bottom padding to the Swiper container to prevent overlap with slides.
+
+---
+
+## Contributing
+
+- Fork the repo, create a topic branch and open a PR.
+- Run lint/tests (if present) and include a short changelog entry.
+
+---
+
+## License
+
+- Copyright 2026 ~AB-Grok~
+- Licensed under the MIT License
+
+---

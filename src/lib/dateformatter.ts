@@ -54,7 +54,7 @@ export function truncateHtml(
   return `${textContent.slice(0, maxLength)}...`;
 }
 
-function isDate(date: any): date is Date {
+export function isDate(date: any): date is Date {
   return date instanceof Date && !isNaN(date.valueOf());
 }
 

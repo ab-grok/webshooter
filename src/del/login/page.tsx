@@ -1,3 +1,5 @@
+//Setting site to visitor site for unlogged user; wafter login refetch sites, and shots
+
 "use client";
 import {
   Form,

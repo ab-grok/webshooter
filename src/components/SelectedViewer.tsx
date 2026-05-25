@@ -1,7 +1,13 @@
 // components/SelectedViewer.tsx
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import {
@@ -15,24 +21,28 @@ import {
   X,
   Code,
   ImageIcon,
+  Delete,
+  Loader,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDate } from "@/lib/dateformatter";
 import type {
+  dCacheReturn,
   delShotType,
   file,
   getDownloadCache,
   shotData,
 } from "@/lib/types";
 import { useDownloader } from "@/lib/downloader";
+import { useErrContext } from "@/app/(main)/ErrContext";
 
 interface SelectedViewerProps {
   shot: shotData | undefined;
   onClose?: () => void;
-  onDeleteShot: ({ ids }: delShotType) => void;
-  getDownloadCache: ({ key, date, isHtml }: getDownloadCache) => Promise<file>;
+  onDelete: ({ ids }: delShotType) => void;
+  getDownloadCache: ({ key, date, isHtml }: getDownloadCache) => dCacheReturn;
 }
 
 type cursorPos = {
@@ -40,12 +50,13 @@ type cursorPos = {
   y: number;
 };
 
-export function SelectedViewer({
+function SelectedViewer({
   shot,
   onClose,
-  onDeleteShot,
   getDownloadCache,
+  onDelete,
 }: SelectedViewerProps) {
+  const { setErrBody } = useErrContext();
   const [zoom, setZoom] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -83,9 +94,9 @@ export function SelectedViewer({
         return;
       }
 
-      //checks that the user hasn't moved the image since mousedown which is indicated by mouseInit.current -- if moved, should not overwrite init
+      //if Checks that there's not a current move action indicated by !mouseInit.current -- if moving, should not overwrite
       //expecting a null return from e.clientX when isTouchEvent -- true?
-      if (!mouseInit.current) {
+      if (!mouseInit.current.x) {
         const x =
           (e as MouseEvent).clientX || (e as TouchEvent).touches[0].clientX;
         const y =
@@ -110,12 +121,13 @@ export function SelectedViewer({
     x = x - mouseInit.current.x;
     y = y - mouseInit.current.y;
 
+    //What's the function of requestAnimationFrame()?
     requestAnimationFrame(() => {
       setMouseOffset({ x, y });
     });
   }, []);
 
-  //sets cursor position to null, and removes event move event listeners
+  //sets cursor position to null, and removes move event listeners
   const onMouseUp = useCallback(() => {
     requestAnimationFrame(() => {
       setMouseOffset(null);
@@ -136,7 +148,7 @@ export function SelectedViewer({
 
   useEffect(() => {
     if (containerRef.current) containerRef.current.focus();
-    if (!(document.activeElement == containerRef.current)) return;
+    if (document.activeElement != containerRef.current) return;
 
     const keyZoom = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key == "=") handleZoomIn();
@@ -182,7 +194,6 @@ export function SelectedViewer({
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
-
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
@@ -191,29 +202,38 @@ export function SelectedViewer({
 
   //Retrieve Html when the user clicks on the html tab
   useEffect(() => {
-    if (html || !(activeTab == "html")) return;
+    if (html || activeTab != "html") return;
     (async () => {
       setHtml(await getHtml());
     })();
   }, [activeTab]);
 
   const handleDownload = useCallback(async () => {
-    if (!shot) return;
-    const prop = { key: shot.shotKey, date: shot.date };
-    const file = await getDownloadCache(prop);
+    try {
+      if (!shot) throw "Shot is undefined!";
 
-    const { error } = await download(file);
-    if (error) {
-      console.error("In handleDowwnload. Download failed: ", error);
-    }
+      const prop = { key: shot.shotKey, date: shot.date };
+      const file = await getDownloadCache(prop);
+      if (!file) throw "No file in download Cache";
+
+      const { error } = await download(file);
+      if (error) {
+        console.error("In handleDowwnload. Download failed: ", error);
+        //setErrBody
+      }
+    } catch (e) {}
   }, [shot]);
 
   const getHtml = useCallback(async () => {
     if (!shot) return "";
     const prop = { key: shot.htmlKey, date: shot.date, isHtml: true };
     const file = await getDownloadCache(prop);
-    if (file) return file.fileData as string;
-    return "";
+    if (!file) {
+      setErrBody({ msg: "Could not get Html!", label: "Shot Html Error!" });
+      return "";
+    }
+
+    return file.fileData as string;
   }, [shot]);
 
   const handleCopyHtml = useCallback(async () => {
@@ -229,14 +249,6 @@ export function SelectedViewer({
 
   const shotUrl = useMemo(() => {
     return shot?.shotUrl!;
-    // const { fileData: data, fileType: type } = shot?.file!;
-    // if (type == "text/plain") {
-    //   //when type is text, shot is duplicate, data is id of original shot.
-    //   const { file } = getPrevShot(Number(data))!; //May be undefined: return a stock image then.
-    //   if (file) return { data: file.fileData, type: file.fileType };
-    //   else return { data, type }; //else some generic image as {fileData, fileType}
-    // }
-    // return { data, type };
   }, [shot]);
 
   const MotionImg = motion(Image);
@@ -287,6 +299,7 @@ export function SelectedViewer({
           </span>
         </div>
 
+        {/* Add Animate presence here to see how buttons transition in and out of view. */}
         <div className="flex items-center gap-1">
           {activeTab === "image" && (
             <>
@@ -303,7 +316,7 @@ export function SelectedViewer({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 min-w-[4rem] text-xs"
+                className="h-8 min-w-16 text-xs"
                 onClick={handleResetZoom}
               >
                 {Math.round(zoom * 100)}%
@@ -336,8 +349,6 @@ export function SelectedViewer({
             )}
           </Button>
 
-          {/* Add delete button */}
-
           {/* Download button */}
           <Button
             variant="ghost"
@@ -361,6 +372,16 @@ export function SelectedViewer({
             ) : (
               <Copy className="h-4 w-4" />
             )}
+          </Button>
+          {/* Delete  Button */}
+          <Button
+            variant="destructive"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => onDelete({ ids: shot.id })}
+            aria-label="Delete Shot"
+          >
+            <Delete className="text-destructive h-4 w-4" />
           </Button>
 
           {onClose && (
@@ -386,9 +407,9 @@ export function SelectedViewer({
           {activeTab === "image" ? (
             <motion.div
               key="image"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
               className="h-full overflow-auto"
             >
               <div
@@ -406,14 +427,14 @@ export function SelectedViewer({
                   animate={{
                     scale: zoom,
                     opacity: 1,
-                    translateX: mouseOffset ? mouseOffset.x : 0,
-                    translateY: mouseOffset ? mouseOffset.y : 0,
+                    translateX: mouseOffset?.x ? mouseOffset.x : 0,
+                    translateY: mouseOffset?.y ? mouseOffset.y : 0,
                   }}
                   transition={{ duration: 0.2 }}
                   style={{
                     cursor:
                       zoom > 1
-                        ? mouseOffset
+                        ? mouseOffset?.x
                           ? "grabbing"
                           : "grab"
                         : "default",
@@ -424,14 +445,23 @@ export function SelectedViewer({
           ) : (
             <motion.div
               key="html"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
               className="h-full"
             >
               <ScrollArea className="h-full">
                 <pre className="text-muted-foreground p-4 font-mono text-xs leading-relaxed">
-                  <code>{html}</code>
+                  {html ? (
+                    <code>{html}</code>
+                  ) : (
+                    <div className="gap-1">
+                      <Loader className="h-4 w-4 animate-spin" />
+                      <p className="text-muted-foreground font-semibold">
+                        Fetching HTML...
+                      </p>
+                    </div>
+                  )}
                 </pre>
               </ScrollArea>
             </motion.div>
@@ -453,3 +483,5 @@ export function SelectedViewer({
     </motion.div>
   );
 }
+
+export default React.memo(SelectedViewer);

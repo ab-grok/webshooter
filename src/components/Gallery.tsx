@@ -11,13 +11,21 @@ import React, {
   useMemo,
 } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
-import { Navigation, Keyboard, A11y } from "swiper/modules";
+import {
+  Navigation,
+  Keyboard,
+  A11y,
+  Pagination,
+  Scrollbar,
+  EffectCoverflow,
+} from "swiper/modules";
 import type { Swiper as SwiperType } from "swiper";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { preserveScrollType } from "@/lib/usePreserveScroll";
 import type {
+  dCacheReturn,
   delShotType,
   file,
   getDownloadCache,
@@ -28,9 +36,13 @@ import type {
 
 import "swiper/css";
 import "swiper/css/navigation";
+import "swiper/css/scrollbar";
+import "swiper/css/effect-coverflow";
 import { useMutateViewed, useQueryShots } from "@/app/(main)/reactquery";
 import { useDownloader } from "@/lib/downloader";
 import ShotCard from "./ShotCard";
+import { useErrContext } from "@/app/(main)/ErrContext";
+import { filterPromise } from "./Shots";
 
 interface GalleryProps {
   site: string;
@@ -41,7 +53,7 @@ interface GalleryProps {
   delSelectedShots: number;
   downloadSelectedShots: number;
   viewSelectedShots: number;
-  getDownloadCache: ({ key, date }: getDownloadCache) => Promise<file>;
+  getDownloadCache: ({ key, date }: getDownloadCache) => dCacheReturn;
   onOpenedShot: (shot: shotData) => void;
   onDeleteShot: ({ ids }: delShotType) => void; //deletes selectedShots when active
   onSelectedShots: (
@@ -51,13 +63,11 @@ interface GalleryProps {
 
 function ShotSkeleton() {
   return (
-    <div className="h-full animate-pulse">
-      <div className="border-border/50 bg-card/50 flex h-full flex-col overflow-hidden rounded-lg border">
-        <div className="bg-muted aspect-video w-full" />
-        <div className="flex flex-1 flex-col gap-2 p-3">
-          <div className="bg-muted h-4 w-3/4 rounded" />
-          <div className="bg-muted h-3 w-1/2 rounded" />
-        </div>
+    <div className="mx-auto h-full w-full">
+      <div className="border-border/50 bg-card/50 aspect-9/16 overflow-hidden rounded-3xl border" />
+      <div className="mt-4 flex flex-col gap-2">
+        <div className="bg-muted/60 h-4 w-3/4 rounded-full" />
+        <div className="bg-muted/60 h-3 w-1/2 rounded-full" />
       </div>
     </div>
   );
@@ -77,25 +87,18 @@ function Gallery({
   onDeleteShot,
   onSelectedShots,
 }: GalleryProps) {
-  // const [shots, setShots] = useState<Shot[]>(initialShots);
-  // const [isLoadingOlder, setIsLoadingOlder] = useState(false); //replace with fetchingPrevShots
-  // const [isLoadingNewer, setIsLoadingNewer] = useState(false); //replace with fetchingNextShots
-  // const [noMorePrev, setNoMorePrev] = useState(false);
-  // const [noMoreNext, setNoMoreNext] = useState(false);
-  // const [hasMoreOlder, setHasMoreOlder] = useState(true); //repllace with noMoreOlder
-  // const [hasMoreNewer, setHasMoreNewer] = useState(true);
-
-  const [error, setError] = useState<string | null>(null);
+  const { setErrBody } = useErrContext();
   const [addedCount, setAddedCount] = useState(0); //will be passed to shotCard to acc selects and used for dl
-  const [firstDeledShot, setFirstDeledShot] = useState<number | null>(null); //holds id of first shot in selectedShots when deled
+  const [firstDeledShot, setFirstDeledShot] = useState<number>(); //holds id of first shot in selectedShots when deled
 
   const { shots, fetchNextShots, fetchPrevShots, ...s } = useQueryShots(site);
-  const { fetchingNextShots, fetchingPrevShots, shotsRefetch } = s;
+  const { fetchingNextShots, fetchingPrevShots, shotsLoading } = s;
   const { mutateViewed, resetViewed, ...v } = useMutateViewed(site);
-  const { mutateViwedErr, mutatingViewed } = v; // set loader or sth
+  const { mutateViewedErr, mutatingViewed } = v; // set loader or sth
   const { capturePosition, restorePosition, swiperRefs } = preserveScroll; //a user can switch between multiple sites, and I need the scroll position restored after a change and back to a site -- this achieved?
   const { download } = useDownloader();
-  const galleryRef = useRef<HTMLDivElement | null>(null); //unused
+  const galleryRef = useRef<HTMLDivElement>(null);
+  const notLoading = !fetchingPrevShots && !shotsLoading && !fetchingNextShots;
 
   const noMorePrev = useMemo(() => {
     if (!shots?.pages?.length) return true;
@@ -122,7 +125,7 @@ function Gallery({
       prevShotId = prevShotId >= 0 ? prevShotId : 0;
 
       onSelectedShots([]); //runs after optiistic del
-      setFirstDeledShot(null);
+      setFirstDeledShot(undefined);
 
       //at this point shots have been deled -- no need for requestAnimationFrame to wait for DOM to update before restoring position -- is this concept of requestAnimationFrame accurate or perhaps the goal to restore position seamlessly is simply useLayoutEffect no requestAimationFrame in talks?
       const restored = restorePosition({ site, prevShotId });
@@ -149,6 +152,16 @@ function Gallery({
     handleDownloadSelectedShots();
   }, [downloadSelectedShots]);
 
+  useEffect(() => {
+    if (!mutateViewedErr) return;
+    setErrBody({ msg: mutateViewedErr.error, label: "Set Shot Viewed Error!" });
+  }, [mutateViewedErr]);
+
+  //Closes errorDialog
+  useEffect(() => {
+    if (notLoading && !siteShots?.length) setErrBody({});
+  }, [notLoading, siteShots?.length]);
+
   // Fix download
   const handleDownloadSelectedShots = useCallback(async () => {
     try {
@@ -157,16 +170,16 @@ function Gallery({
         ?.filter((s) => selIds?.includes(s.id))
         .map((s) => ({ key: s.shotKey, date: s.date }))!;
 
-      const selShots = await Promise.all(
-        selShotKeys.map((s) => getDownloadCache(s)),
-      );
+      const selShots0 = selShotKeys.map((s) => getDownloadCache(s));
+      const selShots = await filterPromise(selShots0);
 
       const { error } = await download(selShots);
       if (error) throw error;
-    } catch (e) {
+    } catch (e: any) {
       console.error("in Gallery handleDownloadSelShots: ", e);
+      setErrBody({ msg: e, label: "Download Selected Shots Error!" });
     }
-  }, []);
+  }, [selectedShots]);
 
   // Optimistically mods shots.viewed, can call by selectedShots; capture unnecessary and removed.
   const handleViewed = useCallback(
@@ -182,7 +195,7 @@ function Gallery({
         if (error) throw error;
       } catch (e: any) {
         console.error("in Gallery handleViewed: ", e);
-        setError(e);
+        setErrBody({ msg: e, label: "Set Viewed Error!" });
       }
     },
     [selectedShots],
@@ -206,7 +219,7 @@ function Gallery({
         return;
       } catch (e: any) {
         console.error("in Gallery handleDeleteShot2: ", e);
-        setError(e);
+        setErrBody({ msg: e, label: "Delete Shot Error!" });
       }
     },
     [selectedShots],
@@ -224,7 +237,7 @@ function Gallery({
     [site],
   );
 
-  const onScrollDownEdge = useCallback(async () => {
+  const onReachBegining = useCallback(async () => {
     try {
       if (noMorePrev) throw "No more prev shots!";
       if (fetchingPrevShots) throw "Fetching prev shots!";
@@ -236,11 +249,11 @@ function Gallery({
       setAddedCount(data?.pages[0].shotsData.length!);
     } catch (e: any) {
       console.error("In onScrollDown: ", e);
-      setError(e);
+      setErrBody({ msg: e, label: "Fetch Prev Shots Error!" });
     }
   }, [noMorePrev, fetchingPrevShots]);
 
-  const onScrollUpEdge = useCallback(async () => {
+  const onReachEnd = useCallback(async () => {
     try {
       if (noMoreNext) throw "You're up to date.";
       if (fetchingNextShots) throw "Fetching next shots.";
@@ -250,16 +263,20 @@ function Gallery({
 
       //no Need to setAddedCount -- as appended shots may not shift activeIndex (but may for manual scroll position seeking in grid layout);
       // effect is triggered by shots change
-    } catch (e) {
+    } catch (e: any) {
       console.error("In onScrollUp: ", e);
+      setErrBody({ msg: e, label: "Fetch Next Shots Error!" });
     }
   }, [noMoreNext, fetchingNextShots]);
 
-  //computes the onEnd/onStartReached of the slides and fetches old/new on either -- will change to a scrollTop reached fn
+  //computes the onEnd/onStart-Reached of the slides and fetches old/new for either
   //Logic change after implementing slides as grid?: get container height and calc container top reached and loading next and container bottom reached and load prev shots (use requestAnimFrame);
   //implemented toggleSelectShot here even if not opened, since 'slide change' = activeIndex change -- is assumption correct?
   const handleSlideChange = useCallback(
+    //Problematic. Can trigger slideTo unnecesarily on rapid scrolling -- switch to layout and layout scroll.
     async (swiper: SwiperType) => {
+      if (!siteShots?.length) return;
+
       const swiperId = swiper.activeIndex;
       const id = siteShots?.at(swiperId)?.id;
 
@@ -268,16 +285,16 @@ function Gallery({
 
       try {
         if (swiper.activeIndex < 5 && !noMorePrev && !fetchingPrevShots)
-          await onScrollDownEdge();
+          await onReachEnd();
         else {
           const pageEnd = swiper.activeIndex > swiper.slides.length - 6;
           if (pageEnd && !noMoreNext && !fetchingNextShots) {
-            await onScrollUpEdge();
+            await onReachBegining();
           }
         }
       } catch (e: any) {
         console.error("In handleSlidesChange: ", e);
-        setError(e);
+        setErrBody({ msg: e, label: "Slides Change Error!" });
       }
     },
     [noMorePrev, noMoreNext, fetchingNextShots, fetchingPrevShots],
@@ -300,18 +317,25 @@ function Gallery({
     [],
   );
 
-  if (siteShots?.length == 0 && !fetchingNextShots && !fetchingPrevShots) {
+  //Alternative component B
+  if (!siteShots?.length && notLoading) {
     return (
+      //CHANGE to framer motion and perform transforms on hover, click
       <div className="border-border bg-card/50 flex h-64 items-center justify-center rounded-lg border border-dashed">
-        <p className="text-muted-foreground">No screenshots available</p>
+        <p className="text-muted-foreground">No Shots yet, Sorry!</p>
+        {/* Display cron details */}
+        {/* Show actions Modify cron, delete cron */}
       </div>
     );
   }
 
   return (
-    <div ref={galleryRef} className="relative w-full">
+    <div
+      ref={galleryRef}
+      className="relative flex flex-1 flex-col overflow-hidden bg-red-800"
+    >
       {/* Error message */}
-      <AnimatePresence>
+      {/* <AnimatePresence>
         {error && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -322,15 +346,15 @@ function Gallery({
             {error}
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence> */}
 
-      {/* Loading indicators */}
+      {/* Left & Right Loading indicators */}
       <AnimatePresence>
         {fetchingPrevShots && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, x: -20, scale: 0 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -20, scale: 0 }}
             className="absolute top-1/2 left-4 z-10 -translate-y-1/2"
           >
             <Loader2 className="text-primary h-6 w-6 animate-spin" />
@@ -341,9 +365,9 @@ function Gallery({
       <AnimatePresence>
         {fetchingNextShots && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, x: 20, scale: 0 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 20, scale: 0 }}
             className="absolute top-1/2 right-4 z-10 -translate-y-1/2"
           >
             <Loader2 className="text-primary h-6 w-6 animate-spin" />
@@ -355,27 +379,26 @@ function Gallery({
       <Button
         variant="secondary"
         size="icon"
-        className="gallery-prev bg-background/80 hover:bg-background absolute top-1/2 left-0 z-10 -translate-y-1/2 rounded-full backdrop-blur-sm"
+        className="gallery-prev bg-background/70 hover:bg-background absolute top-1/2 left-0 z-10 flex size-15 -translate-y-1/2 rounded-full text-center backdrop-blur-sm"
         aria-label="Previous screenshots"
       >
-        <ChevronLeft className="h-5 w-5" />
+        <ChevronLeft className="size-10" />
       </Button>
 
       <Button
         variant="secondary"
         size="icon"
-        className="gallery-next bg-background/80 hover:bg-background absolute top-1/2 right-0 z-10 -translate-y-1/2 rounded-full backdrop-blur-sm"
+        className="gallery-next bg-background/70 hover:bg-background absolute top-1/2 right-0 z-10 size-15 -translate-y-1/2 rounded-full backdrop-blur-sm"
         aria-label="Next screenshots"
       >
-        <ChevronRight className="h-5 w-5" />
+        <ChevronRight className="size-10" />
       </Button>
 
       {/* Swiper */}
-      <div className="px-12">
+      <div className="flex-1 p-4">
         <Swiper //explain each props
-          modules={[Navigation, Keyboard, A11y]}
-          // spaceBetween={16} //- Can be responsive: spaceBetween={{ 640: 8, 1024: 16 }}.
-          slidesPerView={1}
+          key={site}
+          modules={[EffectCoverflow, Navigation, Keyboard, A11y, Scrollbar]}
           navigation={{
             prevEl: ".gallery-prev",
             nextEl: ".gallery-next",
@@ -384,18 +407,49 @@ function Gallery({
             enabled: true,
             onlyInViewport: true,
           }}
-          breakpoints={{
-            640: { slidesPerView: 2, spaceBetween: 12 },
-            1024: { slidesPerView: 3, spaceBetween: 14 },
-            1280: { slidesPerView: 4, spaceBetween: 16 },
+          effect="coverflow"
+          grabCursor={true}
+          centeredSlides
+          coverflowEffect={{
+            rotate: 10,
+            stretch: 50,
+            depth: 100,
+            modifier: 1,
+            slideShadows: false,
           }}
+          // breakpoints={{
+          //   640: { slidesPerView: 2, spaceBetween: 12 },
+          //   1024: { slidesPerView: 4, spaceBetween: 14 },
+          //   1280: { slidesPerView: 5, spaceBetween: 16 },
+          // }}
+          slidesPerView="auto"
+          scrollbar={{ draggable: true }}
           onSwiper={pushSwiper}
-          onSlideChange={handleSlideChange}
-          className="py-4"
+          // onSlideChange={handleSlideChange}
+          onReachBeginning={onReachBegining}
+          onReachEnd={onReachEnd}
+          className={`mx-auto min-h-0 max-w-[70vw] bg-amber-200 pb-12 ${
+            openedShot ? "lg:max-w-[55vw]" : "lg:max-w-[80vw]"
+          }`}
         >
-          {siteShots &&
+          {/* PrevShots skeleton */}
+          {fetchingPrevShots &&
+            !noMorePrev &&
+            Array.from({ length: 2 }).map((v, i) => (
+              <SwiperSlide
+                key={`skeleton-newer-${i}`}
+                className="flex !w-50 items-center justify-center"
+              >
+                <ShotSkeleton />
+              </SwiperSlide>
+            ))}
+
+          {siteShots?.length &&
             siteShots.map((shot, i) => (
-              <SwiperSlide key={shot.id} className="h-auto">
+              <SwiperSlide
+                key={shot.id}
+                className="flex !w-50 items-center justify-center"
+              >
                 <ShotCard
                   shot={shot}
                   isOpen={openedShot?.id === shot.id}
@@ -410,14 +464,16 @@ function Gallery({
               </SwiperSlide>
             ))}
 
-          {/* Skeleton placeholders when loading -- may need to fix positions optimistically then fix to new position on fetch success or fail */}
-          {fetchingNextShots ||
-            (!siteShots &&
-              Array.from({ length: 5 }).map((_, i) => (
-                <SwiperSlide key={`skeleton-newer-${i}`} className="h-auto">
+          {
+            // This is the component rendering in this testing phase
+            ((fetchingNextShots && !noMoreNext) ||
+              (shotsLoading && !siteShots?.length)) &&
+              Array.from({ length: 5 }).map((v, i) => (
+                <SwiperSlide key={`skeleton-newer-${i}`} className="flex !w-50">
                   <ShotSkeleton />
                 </SwiperSlide>
-              )))}
+              ))
+          }
         </Swiper>
       </div>
 
@@ -426,26 +482,34 @@ function Gallery({
         <Button
           variant="outline"
           size="sm"
-          onClick={onScrollDownEdge}
+          onClick={onReachEnd}
           disabled={fetchingPrevShots || noMorePrev}
           className="bg-transparent text-xs"
         >
           {fetchingPrevShots ? (
-            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-          ) : null}
-          Load older
+            <p className="mr-2 gap-2">
+              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+              Loading older...
+            </p>
+          ) : (
+            <p className="mr-2"> Load older </p>
+          )}
         </Button>
         <Button
           variant="outline"
           size="sm"
-          onClick={onScrollUpEdge}
+          onClick={onReactBegining}
           disabled={fetchingNextShots || noMoreNext}
           className="bg-transparent text-xs"
         >
           {fetchingNextShots ? (
-            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-          ) : null}
-          Load newer
+            <p className="mr-2 gap-2">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading newer...
+            </p>
+          ) : (
+            <p className="mr-2"> Load newer </p>
+          )}
         </Button>
       </div>
     </div>

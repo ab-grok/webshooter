@@ -33,6 +33,7 @@ export type handleDownload = {
 };
 
 export type getDownloadCache = { key: string; isHtml?: boolean; date: string };
+export type dCacheReturn = Promise<file | undefined>;
 
 export type multiShots = {
   site: string;
@@ -63,7 +64,7 @@ export type shots = {
 export type siteData = {
   cron: string;
   site: string;
-  range: { start: number; end: number };
+  range?: { start: number; end: number };
   active: boolean;
 };
 

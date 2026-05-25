@@ -11,6 +11,7 @@ type downloader = {
 export function useDownloader(): downloader {
   async function download(file: file | file[]) {
     try {
+      if (!file) throw "File is undefined";
       let name: string;
       let content: Blob;
 

@@ -38,34 +38,34 @@ function SitesTab({
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    console.log("In SitesTab, useEffect() ran!");
+    console.log("In SitesTab, useEffect() ran!", { selectedSite });
   }, []);
   return (
     <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="border-border/50 bg-card/50 hover:bg-card min-w-[180px] justify-between gap-2 backdrop-blur-sm"
+          className="border-border/50 bg-card/50 hover:bg-card hover:text-text1 text-text1 min-w-[180px] justify-between gap-2 backdrop-blur-sm"
         >
           <div className="flex items-center gap-2">
             <Globe className="text-primary h-4 w-4" />
-            <span className="max-w-[120px] truncate">
+            <span className="max-w-30 truncate">
               {selectedSite ? (
                 selectedSite.site
               ) : sitesLoading ? (
                 <Loader2 className="text-primary h-6 w-6 animate-spin" />
               ) : (
-                <p className="text-primary hover:text-secondary">
-                  "Select a site"
+                <p className="text-primary hover:text-primary-foreground">
+                  Select a site
                 </p>
               )}
             </span>
             {selectedSiteUnviewed?.unvieweds?.length && (
               <Badge
                 variant="default"
-                className="bg-primary h-5 min-w-[20px] justify-center px-1.5 text-[10px]"
+                className="bg-primary h-5 min-w-5 justify-center px-1.5 text-[10px]"
               >
-                {selectedSiteUnviewed.unvieweds.length}
+                {selectedSiteUnviewed?.unvieweds?.length}
               </Badge>
             )}
           </div>
@@ -79,11 +79,15 @@ function SitesTab({
 
       <DropdownMenuContent
         align="start"
-        className="border-border/50 bg-card/95 w-[220px] backdrop-blur-sm"
+        className="border-border/50 text-text1 bg-card/95 w-55 backdrop-blur-sm"
       >
         <AnimatePresence>
           {sites?.map((site, index) => {
-            const thisSite = allSitesUnvieweds.find((u) => u.site == site.site);
+            const thisSite = allSitesUnvieweds?.find(
+              (u) => u?.site == site.site,
+            );
+
+            console.log("In SitesTab", { thisSite, site });
 
             return (
               <motion.div
@@ -103,7 +107,7 @@ function SitesTab({
                 >
                   <div className="flex items-center gap-2">
                     <Globe className="text-muted-foreground h-3.5 w-3.5" />
-                    <span className="max-w-[120px] truncate text-sm">
+                    <span className="max-w-30 truncate text-sm">
                       {/* replace _ with . */}
                       {site.site}
                     </span>
@@ -112,13 +116,13 @@ function SitesTab({
                     {(thisSite?.unvieweds?.length || 0) > 0 && (
                       <Badge
                         variant="secondary"
-                        className="h-5 min-w-[20px] justify-center px-1.5 text-[10px]"
+                        className="h-5 min-w-5 justify-center px-1.5 text-[10px]"
                       >
                         {thisSite?.unvieweds.length}
                       </Badge>
                     )}
                     <a
-                      href={`https://${site.site.replaceAll("_", ".")}`}
+                      href={`https://${site.site?.replaceAll("_", ".")}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}

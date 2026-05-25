@@ -112,8 +112,12 @@ function Navbar({
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2">
           <div className="bg-primary/10 flex h-9 w-9 items-center justify-center rounded-lg">
-            <Camera className="text-primary h-5 w-5" />
-            <Image src="/webshooter.png" alt="WebShooter logo" />
+            <Image
+              src="/webshooter.png"
+              width={50}
+              height={50}
+              alt="WebShooter logo"
+            />
           </div>
           <span className="text-lg font-semibold tracking-tight">
             Web Shooter
@@ -209,7 +213,7 @@ function Navbar({
             <SheetHeader>
               <SheetTitle className="flex items-center gap-2">
                 <Camera className="text-primary h-5 w-5" />
-                Screen Shooter
+                Web Shooter
               </SheetTitle>
             </SheetHeader>
 

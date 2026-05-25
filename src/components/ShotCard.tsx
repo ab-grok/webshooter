@@ -5,23 +5,21 @@ import React from "react";
 import Image from "next/image";
 import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Eye, Download, Copy, Check, Clock, ImageOff } from "lucide-react";
+import { Eye, Download, Copy, Check, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  formatDate,
-  formatRelativeTime,
-  truncateHtml,
-} from "@/lib/dateformatter";
+import { formatRelativeTime } from "@/lib/dateformatter";
 import type {
+  dCacheReturn,
   delShotType,
-  file,
   getDownloadCache,
   handleViewed,
   selectedShot,
   shotData,
 } from "@/lib/types";
 import { useDownloader } from "@/lib/downloader";
+import { filterPromise } from "./Shots";
+import { useErrContext } from "@/app/(main)/ErrContext";
 
 interface ShotCardProps {
   site: string;
@@ -31,7 +29,7 @@ interface ShotCardProps {
   onViewed: ({ id }: handleViewed) => Promise<void>;
   onDelete: ({ ids }: delShotType) => void;
   toggleSelect: ({}: selectedShot) => void;
-  getDownloadCache: ({ key, date }: getDownloadCache) => Promise<file>;
+  getDownloadCache: ({ key, date }: getDownloadCache) => dCacheReturn;
   swiperId: number;
 }
 
@@ -50,6 +48,7 @@ function ShotCard({
   const [copied, setCopied] = useState(false);
   const [localViewed, setLocalViewed] = useState(shot.viewed);
   const { download, openInNewTab } = useDownloader();
+  const { setErrBody } = useErrContext();
 
   const markViewed = useCallback(
     //for manual setting of viewed -- viewed sets onOpened
@@ -72,8 +71,13 @@ function ShotCard({
 
   const downloadShot = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation(); //prevent this click from triggering card's onClick
-    const s = await getDownloadCache({ key: shot.shotKey, date: shot.date });
+    const s = await filterPromise([
+      getDownloadCache({ key: shot.shotKey, date: shot.date }),
+    ]);
+
     const { error } = await download(s);
+
+    if (error) setErrBody({ msg: error, label: "Download Shot Error!" });
   }, []);
 
   //Calls getDownloadCache for html and writes to clipboard!
@@ -86,9 +90,9 @@ function ShotCard({
       await navigator.clipboard.writeText(html.fileData as string);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
+    } catch (e: any) {
       console.error("in ShotCard, copyHtml: Failed to copy HTML:", e);
-      //setError component
+      setErrBody({ msg: e.message || e, label: "Copy Html Error!" });
     }
   }, []);
 
@@ -99,6 +103,7 @@ function ShotCard({
     try {
       const hProp = { key: shot.htmlKey, date: shot.date, isHtml: true };
       const html = await getDownloadCache(hProp);
+      if (!html) throw "Could not get HTML from Download Cache!";
       const { error } = await openInNewTab(html);
       if (error) throw error;
     } catch (e) {
@@ -109,6 +114,7 @@ function ShotCard({
 
   // if ctrlKey: multiSelect -- will not open shot or mark viewed but set to selectedShots; else does
   const handleClicked = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     if (e.ctrlKey) toggleSelect({ id: shot.id, swiperId });
     else {
       toggleSelect({ id: shot.id, swiperId, single: true });
@@ -120,14 +126,10 @@ function ShotCard({
   //getting active shot on delShot not dependent on slides change, cause selectedShots will not trigger slideChange
 
   //create a select button on card
-  const handleSelectShot = useCallback(() => {
-    toggleSelect({ id: shot.id });
-  }, []);
+  const handleSelectShot = () => toggleSelect({ id: shot.id });
 
   //Create a delete button on card
-  const handleDelete = useCallback(() => {
-    onDelete({ ids: shot.id });
-  }, []);
+  const handleDelete = () => onDelete({ ids: shot.id });
 
   return (
     <motion.div
@@ -140,6 +142,7 @@ function ShotCard({
     >
       {/* hope parent clicks are not propagated to children -- ie when card is clicked both Card.onClick and Card.CardContent.(Motion.div).Button.onClick is triggered  */}
       <Card
+        //place hover:box-shadow
         className={`group border-border/50 bg-card/80 hover:border-primary/50 hover:shadow-primary/10 relative h-full cursor-pointer overflow-hidden backdrop-blur-sm transition-all duration-300 hover:shadow-lg ${
           isOpen ? "ring-primary border-primary ring-2" : ""
         }`}
@@ -152,16 +155,18 @@ function ShotCard({
             onOpened(shot);
           }
         }}
-        aria-label={`Shot ${formatRelativeTime(shot.date)}`}
+        aria-label={`Shot from ${formatRelativeTime(shot.date)}`}
       >
         {/* Unviewed indicator */}
         {!localViewed && (
           <div className="bg-primary absolute top-2 right-2 z-10 h-2.5 w-2.5 animate-pulse rounded-full" />
         )}
 
+        {/* Selected Shot Indicator */}
+
         <CardContent className="flex h-full flex-col p-0">
           {/* Image container */}
-          <div className="bg-muted relative aspect-video w-full overflow-hidden">
+          <div className="bg-muted relative aspect-9/16 w-full overflow-hidden">
             {/* {shot.file.fileType == "text/plain" ? (
               <div className="flex h-full w-full items-center justify-center text-2xl font-semibold transition-transform duration-300">
                 {shot.file.fileData}
@@ -185,7 +190,7 @@ function ShotCard({
                 variant="secondary"
                 onClick={downloadShot}
                 className="h-8 w-8 p-0"
-                aria-label="Download shot"
+                aria-label="Download Shot"
               >
                 <Download className="h-4 w-4" />
               </Button>
