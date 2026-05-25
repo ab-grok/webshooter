@@ -6,7 +6,7 @@ Short description
 
 Quick links
 
-- Code: [package.json](package.json)
+- Deps: [package.json](package.json)
 - Server logic / DB interaction: [src/lib/server.js](src/lib/server.js)
 - Frontend gallery / swiper: [src/components/Gallery.tsx](src/components/Gallery.tsx)
 - Scroll-preserve helper: [src/lib/usePreserveScroll.ts](src/lib/usePreserveScroll.ts)
@@ -120,7 +120,7 @@ NODE_ENV=development
 
 ## License
 
-- Copyright 2026 ~AB-Grok~
+- Copyright 2026 [AB-Grok](ab-grok.uk)
 - Licensed under the MIT License
 
 ---
