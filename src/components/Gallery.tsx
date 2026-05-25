@@ -64,10 +64,10 @@ interface GalleryProps {
 function ShotSkeleton() {
   return (
     <div className="mx-auto h-full w-full">
-      <div className="border-border/50 bg-card/50 aspect-9/16 overflow-hidden rounded-3xl border" />
+      <div className="border-border/50 bg-card/50 aspect-9/16 animate-pulse overflow-hidden rounded-3xl border" />
       <div className="mt-4 flex flex-col gap-2">
-        <div className="bg-muted/60 h-4 w-3/4 rounded-full" />
-        <div className="bg-muted/60 h-3 w-1/2 rounded-full" />
+        <div className="bg-muted/60 h-4 w-3/4 animate-pulse rounded-full" />
+        <div className="bg-muted/60 h-3 w-1/2 animate-pulse rounded-full" />
       </div>
     </div>
   );
@@ -482,7 +482,7 @@ function Gallery({
         <Button
           variant="outline"
           size="sm"
-          onClick={onReachEnd}
+          onClick={onReachBegining}
           disabled={fetchingPrevShots || noMorePrev}
           className="bg-transparent text-xs"
         >
@@ -498,7 +498,7 @@ function Gallery({
         <Button
           variant="outline"
           size="sm"
-          onClick={onReactBegining}
+          onClick={onReachEnd}
           disabled={fetchingNextShots || noMoreNext}
           className="bg-transparent text-xs"
         >

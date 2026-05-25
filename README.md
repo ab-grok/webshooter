@@ -22,14 +22,13 @@ Quick links
 - Features
 - Requirements
 - Environment variables
-- Local development (install & run)
-- Deploy
 - Important operational parameters
 - Database & schema notes
 - Architecture & data flow
+- Swiper Notes
 - Troubleshooting & known issues
-- Security notes
 - Contributing
+- License
 
 ---
 
@@ -103,11 +102,13 @@ NODE_ENV=development
 
 ---
 
-## Swiper-specific tips
+## Swiper Notes
 
-- Use `slidesPerView="auto"` and `key={site}` when experimenting with effect props to force remounts during dev.
-- Prefer `onReachBeginning` / `onReachEnd` or `onSlideChangeTransitionEnd` for fetch triggers instead of `onSlideChange` while dragging.
-- Move scrollbar location via CSS or add bottom padding to the Swiper container to prevent overlap with slides.
+- _Prefer_ `onReachBeginning` / `onReachEnd` or `onSlideChangeTransitionEnd`: for fetch triggers instead of `onSlideChange` while dragging. In previous _OnSlideChange_, current swiper position was captured then triggered slideTo if user was 5 slides away from start/end. This interfered with smooth scrolling.
+
+---
+
+## Known Issues
 
 ---
 
