@@ -42,7 +42,7 @@ export default {
 
         const keysData = await Promise.all(
           shotKeys.map((key) => {
-            const url = env.SHOT_BUCKET.getSignedUrl(key, { expiresIn });
+            const url = await env.SHOT_BUCKET.getSignedUrl(key, { expiresIn });
             return { url, key };
           }),
         );
@@ -54,8 +54,7 @@ export default {
 
       if (getHtml) {
         const htmlKey = (await req.json()).key;
-        const html = await env.SHOT_BUCKET.get(htmlKey).text();
-
+        const html = await env.SHOT_BUCKET.get(htmlKey)?.text();
         if (!html) throw { error: "R2 html not found!" };
 
         return Res({ html });
@@ -108,7 +107,7 @@ export default {
       console.error("Error in scheduled: ", e);
 
       const body = { msg: "Error in scheduled: " + JSON.stringify(e) };
-      const fetchProps = { Auth, cron, env, body, method: "POST" };
+      const fetchProps = {cron, env, body, method: "POST" };
       await Fetch({ ...fetchProps, endpoint: "/setNotification" });
     }
   },
@@ -150,14 +149,16 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
 
         const fetchProps = { cron, Auth, env, endpoint: "/makeEntry" };
         await Fetch({ ...fetchProps, method: "POST", body: shotData });
+
+        //run page.close() -- may be cpu costly
       } catch (e) {
         console.error("Error in takeShot > for loop: ", e);
 
         const msg = `Error in readySites, Site: ${site}, User: ${user}, Error: ${JSON.stringify(e)}`;
         const fetchProps = { Auth, cron, env, body: { msg }, method: "POST" };
+        console.error(msg);
         await Fetch({ ...fetchProps, endpoint: "/setNotification" }); //Check `src/app/api/setNotification/route.ts` that I access 'msg' correctly?
       } finally {
-        if (page) await page.close();
       }
     }
 
@@ -182,7 +183,7 @@ async function Fetch({ Auth, cron, env, body, endpoint, method }) {
   console.log("in Fetch", { Auth, cron, body, env, endpoint, method });
   !Auth && (Auth = await createJWT({ cron, env }));
 
-  console.log("In Fetch, passed Auth after reassignmment", { Auth });
+  console.log("In Fetch after Auth reassignmment", { Auth });
   const headers = {
     Authorization: Auth,
     "Content-Type": "application/json",
@@ -202,6 +203,7 @@ async function Fetch({ Auth, cron, env, body, endpoint, method }) {
 //Custom function returning hashed key used in requests.
 async function createJWT({ cron, env }) {
   //gets Uint8Array binary of secret
+
   const secret = new TextEncoder().encode(env.JWT_SECRET);
 
   return await new jose.SignJWT({ cron })
@@ -211,8 +213,10 @@ async function createJWT({ cron, env }) {
     .sign(secret);
 }
 
+//custom response function: stringifies body
 function Res(body, error) {
   //do I have to strigify body when its an object?
+  const rBody = typeof  
   return new Response(JSON.stringify(body), {
     status: error ? 400 : 200,
   });

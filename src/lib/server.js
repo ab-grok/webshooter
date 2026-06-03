@@ -438,17 +438,17 @@ export async function updateWorker({ safeSD, user, del }) {
     //in future can do better schedule organisation: selecting high order schedules and probing db for intersecting crons; -- can take any cron check cron list for matching pattern eg a cron for /30mins and preexisting /10mins can share execute
     const { cron, site } = safeSD;
 
-    const shooterUrl = process.env.SHOOTER_URL;
+    const shooterAPI = process.env.SHOOTER_API;
     const shooterKey = process.env.SHOOTER_KEY;
-    console.log("in UpdateWorker. ", { shooterUrl, shooterKey });
-    if (!shooterKey || !shooterUrl) throw { error: "env vars not found!" };
+    console.log("in UpdateWorker. ", { shooterAPI, shooterKey });
+    if (!shooterKey || !shooterAPI) throw { error: "env vars not found!" };
 
     const headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${shooterKey}`,
     };
 
-    const r1 = await fetch(shooterUrl + "/schedules", {
+    const r1 = await fetch(shooterAPI + "/schedules", {
       headers,
     });
     const worker = await r1?.json();
@@ -486,7 +486,7 @@ export async function updateWorker({ safeSD, user, del }) {
       updCrons = [...prevCrons, { cron }];
     }
 
-    const r3 = await fetch(shooterUrl + "/schedules", {
+    const r3 = await fetch(shooterAPI + "/schedules", {
       method: "PUT",
       headers,
       body: JSON.stringify(updCrons),
@@ -1078,69 +1078,26 @@ export async function setNotification({ msgData, user, del, logError }) {
   }
 }
 
-// -------------> helper functions
-export async function safeSite(site, noDots) {
-  try {
-    site = site.trim();
-    if (!site) throw { error: "Missing parameters!" };
-    if (!site.startsWith("http")) site = "https://" + site;
-
-    const s = new URL(site);
-    if (!s) throw { error: "Couldn't parse URL" };
-    const domain = s.hostname.replace("www.", "");
-    const pathname = s.pathname.replace(/\/$/, "");
-
-    let ss = domain + pathname;
-
-    if (noDots) ss = ss.replace(/[^a-z0-9_]/gi, "_");
-    const isNoDot = noDots ? "NoDots " : "";
-    console.log(`in safeSite. ${isNoDot}site after http removed: ${ss}`);
-    return ss;
-  } catch (e) {
-    console.error("Safesite error: ", e);
-    return null;
-  }
-}
-
-export async function safeCron(cron) {
-  try {
-    //validates crons based on a format (limited pattern set than cloudFlare's)
-    //invalid crons: 'd,d/d' (list step), 'd-d/d' (ranged step)
-    const validCron = cron
-      .trim()
-      .match(
-        /^(?:((?:\*)|(?:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)(?:\/\d+)?)\s+){4}((?:\*)|(?:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)(?:\/\d+)?)$/,
-      );
-    if (!validCron) throw { error: "invalid cron" };
-    return validCron[0];
-  } catch (e) {
-    console.error("Safecron error: ", e);
-    return null;
-  }
-}
-
-export async function safeRange(range) {
-  if (!(isNaN(range?.start) || isNaN(range?.end))) return range;
-}
-
 //------------ User session
 export async function createSession(password, username, expires) {
   //call after validateSession -- which checks that a session is not active.
   try {
     if (!password || !username) throw { error: "Missing credentials" };
 
+    const { uid } = await checkUser({ username, password });
+    if (!uid) throw { error: "Wrong Username or Password!" };
+
     const cookie = await createCookie();
     const token = await getToken(cookie);
-    const { uid } = await checkUser({ username, password });
-    if (uid)
-      await db`update "private"."sessions" set "sessionId" = ${token}, expires = ${expires} where uuid = ${uid}`;
-    else return { error: "Unknown user!" };
+    const r1 = //is this valid sql?
+      await db`update "private"."sessions" set "sessionId" = ${token}, expires = ${expires} left join "private"."users" u on uuid = u.uuid where uuid = ${uid} returning u.username`;
+
     //can set fingerprint ID -- nope, handled elsewhere
 
-    return { cookie };
+    return { cookie, user: r1?.[0]?.username };
   } catch (e) {
     console.error("Error in createSession: ", e);
-    return { error: "Couldn't create session!" };
+    return { error: e?.error || "Couldn't create session!" };
   }
 }
 

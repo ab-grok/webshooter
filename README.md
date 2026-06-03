@@ -83,6 +83,7 @@ NODE_ENV=development
 - **MaxCrons**: application limit for cron schedules (configured in `private.settings`).
 - **SafeAddCron / SafeAddSite**: server-side checks when scheduling crons/sites (see `updateCronTable` and `updateUserSites` in `src/lib/server.js`).
 - **storeDuration**: per-user retention in days; older shots are purged and corresponding remote assets are deleted via the shooter service (see `delPrevEntry` and `deleteR2Shot`).
+- **SafeCron Regex**: Steps `(*/d)` in lists `(- , -)` must be placed at list end or will throw.
 
 ---
 

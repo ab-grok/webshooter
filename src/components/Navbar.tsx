@@ -1,9 +1,10 @@
 // src/components/Navbar.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import {
   Camera,
   Clock,
@@ -30,7 +31,12 @@ import type {
 } from "@/lib/types";
 import Image from "next/image";
 import SitesTab from "./SitesTab";
+import Auth from "./Auth";
+import { cn } from "@/lib/utils";
+import CronScheduler from "./CronScheduler";
+import { timing } from "./Shots";
 
+export type modalState = "S" | "L" | "C" | "";
 interface NavbarProps {
   sitesLoading: boolean;
   sites: siteData[] | undefined;
@@ -73,6 +79,10 @@ function Navbar({
   onSelectedShotsViewed,
 }: NavbarProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [modalState, setModalState] = useState<modalState>("");
+  const [siteData, setSiteData] = useState<siteData>();
+  const [resetForm, setResetForm] = useState(0); // set to true after scheduling cron on sign up
+  const navbarRef = useRef<HTMLDivElement>(null);
 
   //recomputes per site or allUnviewed.unvieweds change -- useMemo prevents irrelevant recomputes from component rerenders and other allUnviewed changes
   const selectedSiteUnviewed = useMemo(() => {
@@ -100,17 +110,82 @@ function Navbar({
   }, [localUnviewed]);
 
   useEffect(() => {
-    console.log("in Navbar, useEffect ran");
-  }, []);
+    if (!modalState || !navbarRef.current) return;
+
+    function dismiss(e: MouseEvent | TouchEvent) {
+      const t = e.target as HTMLElement;
+      const outerEl = t.closest('[data-slot="select-content"]');
+      const innerEl = navbarRef.current?.contains(e.target as Node);
+      // const el
+
+      console.log("Navbar e.target: ", t.tagName);
+      if (t.tagName == "HTML") return;
+      if (!outerEl && !innerEl) setModalState("");
+    }
+
+    document.addEventListener("mousedown", dismiss);
+    document.addEventListener("touchstart", dismiss);
+
+    console.log("In useEffect; ModalState: ", modalState);
+    return () => {
+      document.removeEventListener("mousedown", dismiss);
+      document.removeEventListener("touchstart", dismiss);
+    };
+  }, [modalState]);
+
   return (
     <motion.header
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="border-border/50 bg-background/80 sticky top-0 z-50 border-b backdrop-blur-md"
+      layout
+      ref={navbarRef}
+      className="border-border/50 from-background to-background2 sticky top-0 z-50 border-x border-b bg-linear-180 backdrop-blur-md"
     >
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
+      <AnimatePresence>
+        {modalState && (
+          <motion.div
+            // This coponent runs onDisiss on click out;
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ ...timing }}
+            layout
+            className={cn(
+              //backdrop-blur does not work here, why so, Is it something to do with the absolute positioning -- trace the root of the commponent for certainty?
+              "backdrop-blur-4xl absolute top-20 left-1/2 z-4 -translate-x-1/2 rounded-4xl",
+              modalState == "L"
+                ? "lg:left-300"
+                : modalState == "S"
+                  ? "lg:left-320"
+                  : "lg:left-200",
+            )}
+          >
+            {modalState == "S" || modalState == "L" ? (
+              <Auth signUp={modalState == "S"} logIn={modalState == "L"} />
+            ) : (
+              modalState == "C" && (
+                <motion.div>
+                  <CronScheduler
+                    userData={userData}
+                    resetForm={resetForm}
+                    setSiteData={setSiteData}
+                    setModalState={setModalState}
+                  />
+                </motion.div>
+              )
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <div className="mx-auto flex h-16 max-w-7xl cursor-pointer items-center justify-between px-4 select-none">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          whileHover={{ y: -5 }}
+          transition={{ type: "spring", stiffness: 80, damping: 5 }}
+          className="flex items-center gap-2"
+        >
           <div className="bg-primary/10 flex h-9 w-9 items-center justify-center rounded-lg">
             <Image
               src="/webshooter.png"
@@ -122,8 +197,7 @@ function Navbar({
           <span className="text-lg font-semibold tracking-tight">
             Web Shooter
           </span>
-        </Link>
-
+        </motion.div>
         {/* Desktop Navigation */}
         <div className="hidden items-center gap-4 md:flex">
           {/* Site Switcher */}
@@ -138,12 +212,20 @@ function Navbar({
           />
 
           {/* Quick Actions */}
-          <Button variant="ghost" size="sm" asChild className="gap-2">
-            <Link href="/cron">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+            onClick={() => setModalState((m) => (m != "C" ? "C" : ""))}
+            className="hoverButtonBox gap-2"
+          >
+            <p>
               <Clock className="h-4 w-4" />
               <span>Scheduler</span>
-            </Link>
+            </p>
           </Button>
+
+          {/* use DropDownMenu: Download Db shots > `23 shots after current` ; `34 shots before current`  */}
 
           {(dbUnviewedCurrAndBefore || 0) > 0 && (
             <Button
@@ -166,25 +248,30 @@ function Navbar({
             </Button>
           )}
 
-          {/* use DropDownMenu: Download Db shots > `23 shots after current` ; `34 shots before current`  */}
-
           {/* set download buttons */}
 
           {/* Auth Buttons */}
           {!userData ? (
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" asChild className="gap-2">
-                {/* Change to login component */}
-                <Link href="/login">
-                  <LogIn className="h-4 w-4" />
-                  <span>Log in</span>
-                </Link>
+              <Button
+                onClick={() => {
+                  console.log("Log in clicked; modalState: ", modalState);
+                  setModalState((m) => (m != "L" ? "L" : ""));
+                }}
+                variant="ghost"
+                size="sm"
+                className="cursor-pointer gap-2 active:scale-x-105"
+              >
+                <LogIn className="h-4 w-4" />
+                <span>Log in</span>
               </Button>
-              <Button size="sm" asChild className="gap-2">
-                <Link href="/signup">
-                  <UserPlus className="h-4 w-4" />
-                  <span>Sign up</span>
-                </Link>
+              <Button
+                onClick={() => setModalState((m) => (m != "S" ? "S" : ""))}
+                size="sm"
+                className="hover:bg-button1 cursor-pointer gap-2 active:scale-x-105"
+              >
+                <UserPlus className="h-4 w-4" />
+                <span>Sign up</span>
               </Button>
             </div>
           ) : (
@@ -249,10 +336,8 @@ function Navbar({
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
                   {/* change to cron component: popover, dialog, (implememting login as a component that pops right under the button on click -- is it a modal I need? What's the right component? ) */}
-                  <Link href="/cron">
-                    <Clock className="h-4 w-4" />
-                    Cron Scheduler
-                  </Link>
+                  <Clock className="h-4 w-4" />
+                  Cron Scheduler
                 </Button>
 
                 {(dbUnviewedCurrAndBefore || 0) > 0 && (

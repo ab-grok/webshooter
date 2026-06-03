@@ -6,6 +6,7 @@
 /* Futuristic dark theme with cyan/teal accents */
 .light {
   --background: oklch(0.95 0.05 330); /* soft pink background */
+  --background2: oklch(75.586% 0.21369 327.413); /* soft pink background */
   --foreground: oklch(0.25 0.08 300); /* deep purple text */
   --card-foreground: oklch(0.25 0.08 300);
   --card: oklch(0.92 0.06 330);
@@ -44,8 +45,18 @@
 
 .dark {
   --background: oklch(11.369% 0.03048 298.079); /* deep purple background */
+  --background2: oklch(27.203% 0.10362 332.919); /* deep purple background */
+  --stone1: oklch(43.495% 0.00005 271.152); /* deep purple background */
+  --stone2: oklch(35.233% 0.00004 271.152); /* deep purple background */
+  --button1: oklch(72.496% 0.19413 329.96); /* neon pink */
+  --button2: oklch(54.582% 0.21446 355.221); /* neon pink */
+  --button3: oklch(81.261% 0.09532 213.677); /* neon pink */
   --foreground: oklch(0.9 0.05 330); /* light pink text */
   --card: oklch(0.15 0.06 300);
+  --card2: oklch(34.54% 0.17308 294.599);
+  --logBox: rgba(94, 21, 142, 0.2);
+  --signBox: rgba(21, 142, 82, 0.2);
+  --cronBox: rgba(128, 142, 21, 0.2);
   --card-foreground: oklch(0.9 0.05 330);
   --cardInner: oklch(47.12% 0.00005 271.152 / 0.178);
   --text1: oklch(78.577% 0.00009 271.152);
@@ -65,11 +76,6 @@
   --border: oklch(0.3 0.08 300);
   --input: oklch(0.3 0.08 300);
   --ring: oklch(0.65 0.18 330);
-  --chart-1: oklch(0.65 0.18 330);
-  --chart-2: oklch(0.55 0.15 280);
-  --chart-3: oklch(0.45 0.15 300);
-  --chart-4: oklch(0.6 0.15 140);
-  --chart-5: oklch(0.55 0.2 320);
   --radius: 0.75rem;
   --sidebar: oklch(0.12 0.05 300);
   --sidebar-foreground: oklch(0.9 0.05 330);
@@ -85,6 +91,11 @@
   --font-sans: "Geist", "Geist Fallback";
   --font-mono: "Geist Mono", "Geist Mono Fallback";
   --color-background: var(--background);
+  --color-stone1: var(--stone1);
+  --color-stone2: var(--stone2);
+  --color-button1: var(--button1);
+  --color-button2: var(--button2);
+  --color-background2: var(--background2);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-text1: var(--text1);
@@ -106,11 +117,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -131,5 +137,83 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .logBox {
+    box-shadow: 0 00px 30 10 rgba(142, 21, 134, 0.2);
+  }
+
+  .signBox {
+    box-shadow: 0 00px 30 10 rgba(128, 142, 21, 0.2);
+  }
+
+  .cronBox {
+    box-shadow: 0 00px 30 10 rgba(166, 187, 7, 0.2);
+  }
+
+  .logButtonBox:hover {
+    box-shadow: 0 0 20 0 oklch(83.718% 0.16745 148.504);
+  }
+
+  .hoverButtonBox:hover {
+    box-shadow: 0 0 20 0 #0958a2;
+  }
+  .buttonBox {
+    box-shadow: 0 0 20 0 #0958a2;
+  }
+
+  .scheduleGradient {
+    background-image: linear-gradient(45deg, #231c4666, #870969);
+  }
+
+  .cardGradient {
+    background-image: linear-gradient(45deg, #231c4666, #11083c66);
+  }
+
+  .logGradient {
+    background-image: linear-gradient(45deg, #231c4666, #451048);
+  }
+  .signGradient {
+    background-image: linear-gradient(45deg, #231c4666, #1f5761);
+  }
+
+  .logButtonGradient {
+    --start: var(--button1);
+    --end: var(--button2);
+    background-image: linear-gradient(45deg, var(--start), var(--end));
+    transition:
+      --start 1s ease-in,
+      --end 2s ease-in;
+  }
+
+  .logButtonGradient:hover {
+    /* background-image: linear-gradient(45deg, var(--primary), #44e754); */
+    --start: var(--button1);
+    --end: #44e754;
+    background-image: linear-gradient(45deg, var(--start), var(--end));
+    transition:
+      --end 2s ease,
+      --start 2s ease;
+  }
+
+  .signButtonGradient {
+    --start: var(--button1);
+    --end: var(--button3);
+    background-image: linear-gradient(45deg, var(--start), var(--end));
+    transition:
+      --start 1s ease-in,
+      --end 2s ease-in;
+  }
+
+  .signButtonGradient:hover {
+    /* background-image: linear-gradient(45deg, var(--primary), #44e754); */
+    --start: var(--button1);
+    --end: #44e754;
+    background-image: linear-gradient(45deg, var(--start), var(--end));
+    transition:
+      --end 2s ease,
+      --start 2s ease;
   }
 }

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
-import { AlertCircle, RefreshCcw } from "lucide-react";
+import { AlertCircle, CheckCircle, RefreshCcw } from "lucide-react";
 
 export function ErrDialog() {
   const { errBody, setErrBody } = useErrContext(); //declare danger == false' for !danger
@@ -50,14 +50,14 @@ export function ErrDialog() {
     <AnimatePresence>
       {errBody.msg && (
         <motion.main
-          initial={{ y: 20, opacity: 0 }}
+          initial={{ y: -10, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 20, opacity: 0 }} // how do I animate the border radius property?
+          exit={{ y: -10, opacity: 0 }} // how do I animate the border radius property?
           whileHover={{ y: -1 }}
           transition={{
             type: "spring",
             damping: 10,
-            stiffness: 80,
+            stiffness: 100,
             duration: 0.5,
           }}
           className={cn(
@@ -76,7 +76,9 @@ export function ErrDialog() {
                 errBody.danger ? "text-destructive" : "text-white",
               )}
             >
-              {errBody?.danger != false && (
+              {errBody?.danger == false ? (
+                <CheckCircle className="h-7 w-7 text-green-500" />
+              ) : (
                 <AlertCircle className="text-destructive h-7 w-7" />
               )}{" "}
               {errBody.msg
@@ -92,6 +94,7 @@ export function ErrDialog() {
               {errBody.msg && (
                 <motion.p
                   id="message"
+                  key={23}
                   className="bg-cardInner flex items-center overflow-hidden rounded-xl p-4 font-normal"
                 >
                   {errBody?.msg || ""}
@@ -102,6 +105,7 @@ export function ErrDialog() {
                   // this is hidden if not errBody.fn and if errBody.fn animates in on anim.b
 
                   id="actions"
+                  key={10}
                   whileHover={{ scaleY: 1.05 }}
                   transition={{ duration: 1000 }}
                   className={cn("flex justify-center gap-2")}

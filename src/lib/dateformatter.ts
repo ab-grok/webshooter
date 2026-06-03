@@ -1,4 +1,4 @@
-import { safeCron } from "./server";
+import { safeCron } from "./utils";
 
 export function formatDate(date: number | string | Date): string {
   try {
@@ -31,7 +31,7 @@ export function formatRelativeTime(date: string | Date): string {
     const yearDiff = Math.floor(dayDiff / 365);
 
     if (yearDiff >= 1) return `${yearDiff} year(s) ago`;
-    if (monthDiff >= 1) return `${monthDiff} month(s) ago`;
+    if (monthDiff >= 1) return `${monthDiff} months(s) ago`;
     if (dayDiff >= 1) return `${dayDiff} day(s) ago`;
     if (hourDiff >= 1) return `${hourDiff} hour(s) ago`;
     if (minDiff >= 1) return `${minDiff} min(s) ago`;
@@ -58,138 +58,142 @@ export function isDate(date: any): date is Date {
   return date instanceof Date && !isNaN(date.valueOf());
 }
 
-export async function cronToText(cron: string) {
-  try {
-    //transforms crons into text. By iterating over the cron fields appending fillers like "from", "every" depending on field format
-    const sC = await safeCron(cron);
-    if (!sC) return { error: "Invalid cron" };
-    const [mm, hh, DD, MM, WW] = sC.trim().split(/\s+/);
-    const mmText = cronFieldText(mm, "minute");
-    const hhText = cronFieldText(hh, "hour");
-    const DDText = cronFieldText(DD, "day");
-    const MMText = cronFieldText(MM, "month");
-    const WWText = cronFieldText(WW, "weekday");
+export function cronToText(cron: string) {
+  //transforms crons into text. By iterating over the cron fields appending fillers like "from", "every" depending on field format
+  if (!safeCron(cron)) return { error: "Invalid Cron" };
 
-    const parts = [mmText, hhText, DDText, WWText, MMText];
-    // const text = parts.join(" - ");
-    const text = parts.join(" ");
-    return text;
-  } catch (e) {
-    console.error("Error in cronToText: ", e);
-    return "";
+  const [mm, hh, DD, MM, WW] = cron.trim().split(/\s+/);
+  const mmText = cronFieldText(mm, "minute");
+  const hhText = cronFieldText(hh, "hour");
+  const DDText = cronFieldText(DD, "day");
+  const MMText = cronFieldText(MM, "months");
+  const WWText = cronFieldText(WW, "weekday");
+
+  const parts = [mmText, hhText, DDText, WWText, MMText];
+  // const text = parts.join(" - ");
+  const text = parts.join(" - ");
+  return text;
+}
+
+function cronFieldText(cronField: string, timeUnit: string) {
+  //an earlier version of this had all now `match` method as `includes` methods -- I don't forsee any problems here?
+  //Non list calls (from top level cf): get `Of` prepended before cfText with `every` -- indicated by list
+  // i: is mainly for listString -- index of list items;
+
+  //always i==0 (first in field); minute field begins the Cron text with Every`
+  function starString(field: string) {
+    if (field != "*") return "";
+    return `${timeUnit == "minute" ? "Every" : "Of every"} ${timeUnit}`;
   }
 
-  async function cronFieldText(cronField: string, timeUnit: string) {
-    //an earlier version of this had all now `match` method as `includes` methods -- I don't forsee any problems here?
-    if (cronField?.includes("/")) {
-      const [base, step] = cronField.split("/");
+  //numbers | mon, fri | jan, dec
+  //pass i == 0 when called outside list -- will only append `On timeunit` then; else is in a list and the time unit is defines in i==0;
+  function dString(field: string, i: number, list?: string) {
+    if (isNaN(Number(field))) return "";
+    return `${i == 0 || !list ? `On ${timeUnit}` : ""} ${timeSpan(timeUnit, field)}`;
+  }
 
-      switch (true) {
-        //every
-        case base == "*":
-          return `every ${step} ${timeUnit}s `;
+  //returns "d" | "d to d" | "jan to feb" | "sun to mon"
+  //d d/d d-d
+  //pass i
+  function rangeString(field: string, i: number, list?: string) {
+    if (!field.includes("-")) return "";
+    return `${i == 0 || !list ? `From ${timeUnit}s` : ""} ${timeSpan(timeUnit, field.split("-"))}`;
+  }
 
-        //list or ranged list
-        case base?.includes(","):
-          let dArr: string[] = []; //[from mon to tue, wed to thur, on fri, from d, d]
-          cronField.split(",").forEach((d, i) => {
-            if (d?.includes("-")) {
-              const tSpan = timeSpan(timeUnit, d.split("-"));
-              dArr.push(`${i == 0 ? "from " : ""}` + `${tSpan}`);
-            } else
-              dArr.push(`${i == 0 ? "on " : ""}` + `${timeSpan(timeUnit, d)}`);
-          });
+  //a cronField can have only one step even in a list -- mmost likely the last item
+  //for non list calls: pass i==0 -- gets the Of preposition then;
+  function stepString(field: string, i: number, list?: string) {
+    if (!field.includes("/")) return "";
 
-          const moreD = dArr.length > 1;
+    const [base, step] = field.split("/");
 
-          return `every ${step} ${timeUnit}s ${
-            moreD
-              ? `${dArr.slice(0, -1).join(", ")}, and ${dArr.at(-1)}`
-              : `${dArr.toString()}`
-          } `;
+    //prepend 'Every' when step starts the list field; `and every` when it ends the list field; `every` when called outside .
+    let prefix =
+      timeUnit == "minute" && !list //when is minute field and not called from listString;
+        ? "Every"
+        : i == 0 //When is first in non minute fields (including lists)
+          ? "Of every"
+          : i == 4 //when is last in list
+            ? "and every"
+            : "every"; //when in middle of list
+    const suffix = base != "*" ? `starting ${timeSpan(timeUnit, base)}` : "";
+    const s = Number(step) > 1 ? "s" : "";
+    return `${prefix} ${step} ${timeUnit}${s} ${suffix}`;
+  }
 
-        //span
-        case base?.includes("-"):
-          const tSpan = timeSpan(timeUnit, base.split("-"));
-          return `every ${step} ${timeUnit}s from ${tSpan}`;
+  //list is top level classifier, can contain d+, range, step,
+  //Functions(field) already append necessary prepositions.
+  function listString(field: string) {
+    if (!field.includes(",")) return "";
 
-        default:
-          return `every ${step} ${timeUnit}s starting ${timeSpan(
-            timeUnit,
-            base,
-          )}`;
-      }
-    } else if (cronField?.includes(",")) {
-      const dArr: string[] = [];
-      cronField.split(",").forEach((d, i) => {
-        if (d?.includes("-")) {
-          //without 'from' append, you've got "monday to thursday" != from "monday to thursday"
-          dArr.push(timeSpan(timeUnit, d.split("-")));
-        } else dArr.push(timeSpan(timeUnit, d));
-      });
+    const listStrings = [];
+    const listItems = field.split(/,/);
 
-      const s = dArr.length > 1 ? "s" : "";
-      const tSpan = s
-        ? `${dArr.slice(0, -1).join(", ")}, and ${dArr.at(-1)}`
-        : dArr.toString();
-
-      return `on ${timeUnit}${s} ${tSpan}`;
-    } else if (cronField?.includes("-")) {
-      const tU =
-        timeUnit == "month" || timeUnit == "weekday" ? "" : ` ${timeUnit}`;
-      return `from${tU} ${timeSpan(timeUnit, cronField.split("-"))}`;
-    } else if (cronField == "*") return `every ${timeUnit}`;
-    else if (!isNaN(Number(cronField))) {
-      const tU =
-        timeUnit == "month" || timeUnit == "weekday" ? "" : ` ${timeUnit}`;
-      return `on${tU} ${timeSpan(timeUnit, cronField)}`;
+    for (const [i, item] of listItems.entries()) {
+      listStrings.push(
+        dString(field, i, "list") ||
+          stepString(field, i, "list") ||
+          rangeString(field, i, "list"),
+      );
     }
-    return `on ${timeUnit} ${cronField}`;
+
+    //joins list items with 'and' prefixed to the last element
+    const firstParts = listStrings.slice(0, -1).join(", ");
+    return `${firstParts} and ${listStrings.at(-1)}`;
   }
+
+  //n here is used for the first field, different from i used in listString (which numerates list items)
+  let field: string;
+  field = listString(cronField);
+  field = !field ? rangeString(cronField, 0) : "";
+  field = !field ? stepString(cronField, 0) : "";
+  field = !field ? dString(cronField, 0) : "";
+  field = !field ? starString(cronField) : "";
+
+  return field;
 }
 
-//timeUnit accounts for weekDay (0-6) and month (1-12), then returns the number for all others -- can be better.
-//d is a stringified number from regex parsing
+//timeUnit accounts for weekDays (1-7) and months (1-12), then returns the number for all others -- can be better.
+//d expects [d].length==2 or d; d is a stringified number from regex parsing
 function timeSpan(timeUnit: string, d: string | string[]) {
-  //timeD: [time, d];
-  const t = [];
-  const dArr: string[] = Array.isArray(d) ? d : [d];
-  for (const d of dArr) {
-    if (timeUnit == "weekday") t.push(timeText({ WW: d }));
-    else if (timeUnit == "month") t.push(timeText({ MM: d }));
-    else t.push(d);
+  const timeValue = [];
+  const dArr: any[] = Array.isArray(d) ? d : [d];
+
+  for (let d of dArr) {
+    d = Number(d);
+    if (timeUnit == "weekday") timeValue.push(weekDays[d]);
+    else if (timeUnit == "months") timeValue.push(months[d]);
+    else timeValue.push(d);
   }
 
-  const l2 = t.length == 2;
-  return l2 ? `${t.join(" to ")}` : `${t[0]}`;
-
-  function timeText({ WW, MM }: { WW?: string; MM?: string }) {
-    const weekDay: Record<string, string> = {
-      "0": "sunday",
-      "1": "monday",
-      "2": "tuesday",
-      "3": "wednesday",
-      "4": "thursday",
-      "5": "friday",
-      "6": "saturday",
-    };
-
-    const month: Record<string, string> = {
-      "1": "jan",
-      "2": "feb",
-      "3": "mar",
-      "4": "apr",
-      "5": "may",
-      "6": "jun",
-      "7": "jul",
-      "8": "aug",
-      "9": "sep",
-      "10": "oct",
-      "11": "nov",
-      "12": "dec",
-    };
-
-    if (WW) return weekDay[WW] || WW;
-    if (MM) return month[MM] || MM;
-  }
+  const l2 = timeValue.length == 2;
+  return l2 ? `${timeValue.join(" to ")}` : `${timeValue[0]}`;
 }
+
+export const weekDays: string[] = [
+  "",
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+export const months: string[] = [
+  "",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];

@@ -63,7 +63,7 @@ interface GalleryProps {
 
 function ShotSkeleton() {
   return (
-    <div className="mx-auto h-full w-full">
+    <div className="mx-auto h-full w-full shrink-0">
       <div className="border-border/50 bg-card/50 aspect-9/16 animate-pulse overflow-hidden rounded-3xl border" />
       <div className="mt-4 flex flex-col gap-2">
         <div className="bg-muted/60 h-4 w-3/4 animate-pulse rounded-full" />
@@ -438,7 +438,7 @@ function Gallery({
             Array.from({ length: 2 }).map((v, i) => (
               <SwiperSlide
                 key={`skeleton-newer-${i}`}
-                className="flex !w-50 items-center justify-center"
+                className="mx-auto !w-50"
               >
                 <ShotSkeleton />
               </SwiperSlide>
@@ -469,7 +469,7 @@ function Gallery({
             ((fetchingNextShots && !noMoreNext) ||
               (shotsLoading && !siteShots?.length)) &&
               Array.from({ length: 5 }).map((v, i) => (
-                <SwiperSlide key={`skeleton-newer-${i}`} className="flex !w-50">
+                <SwiperSlide key={`skeleton-newer-${i}`} className="!w-50">
                   <ShotSkeleton />
                 </SwiperSlide>
               ))

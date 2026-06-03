@@ -49,6 +49,13 @@ export async function filterPromise(p: Promise<file | undefined>[]) {
   return (await Promise.all(p)).filter((p) => p != undefined);
 }
 
+export const timing: Transition = {
+  type: "spring",
+  damping: 10,
+  stiffness: 80,
+  duration: 0.5,
+};
+
 type state = {
   value: boolean;
   setter: (d: boolean) => void;
@@ -500,8 +507,6 @@ function Shots({
     setErrBody({ label: "Delete Shots Error!", msg: mutateDelErr.error });
   }, [mutateDelErr]);
 
-  const timing: Transition = { type: "spring", damping: 10, stiffness: 80 };
-
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-white lg:flex-row">
       {/* CHANGE to skeleton in gallery */}
@@ -564,7 +569,7 @@ function Shots({
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              transition={{ ...timing, duration: 0.5 }}
+              transition={{ ...timing }}
               layout
               className="border-border/50 h-[50vh] border-b p-4"
             >
@@ -582,7 +587,7 @@ function Shots({
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ ...timing, duration: 0.5 }}
+          transition={{ ...timing }}
           className="min-h-0 flex-1 p-4"
         >
           <Gallery
@@ -606,7 +611,7 @@ function Shots({
       <motion.div
         id="Section Container"
         layout
-        transition={{ ...timing, duration: 0.5 }}
+        transition={{ ...timing }}
         className="hidden flex-1 lg:flex"
       >
         {/* Gallery -- Centralise until openedShot , then reveal selectedViewer  */}
@@ -645,7 +650,7 @@ function Shots({
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
-              transition={{ ...timing, duration: 0.5 }}
+              transition={{ ...timing }}
               layout
               className="w-[45%] p-6"
             >

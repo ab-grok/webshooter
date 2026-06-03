@@ -8,14 +8,11 @@ import {
   updateShotSchema,
   updateUserSites,
   updateWorker,
-  safeCron,
   updateCronTable,
   checkUser,
   deleteUser,
-  safeRange,
   setSiteInactive,
   cancelDeleteUser,
-  safeSite,
   getSession,
   getUserShots,
   getVisitorShots,
@@ -37,6 +34,7 @@ import {
 import { sha256 } from "@oslojs/crypto/sha2";
 import { downloadProps, range } from "./types";
 import * as jose from "jose";
+import { safeCron, safeRange, safeSite } from "./utils";
 
 //---> session managment
 export async function getCookie(name: "session" | "analytics") {
@@ -92,7 +90,11 @@ export async function validateSession() {
 export async function logUser(username: string, password: string) {
   const expires = new Date(Date.now() + 3600000 * 24 * 28);
 
-  const { cookie, error } = await createSession(password, username, expires);
+  const { error: e1 } = await validateSession();
+  if (e1) return { error: e1 };
+
+  const { error, ...s } = await createSession(password, username, expires);
+  const { user, cookie } = s;
   if (error || !cookie) return { error };
 
   const { error: e2 } = await setCookie({ name: "session", cookie, expires });
@@ -178,7 +180,7 @@ export async function cancelDeleteAccount() {
 
 //----------> Shots management
 export async function scheduleShot(safeSD: siteData) {
-  //can use this to unpause crons. instead of in own function
+  //Used to set and reactivate crons.
 
   const { user, error: e0 } = await validateSession();
   if (e0) return { error: e0 };
@@ -297,7 +299,7 @@ export async function getSites() {
   if (!userSites && e2) {
     const u = { cron: process?.env?.VCRON, active: true };
 
-    return { userSites: [{ site: await safeSite(process?.env?.VSITE), ...u }] };
+    return { userSites: [{ site: safeSite(process?.env?.VSITE!), ...u }] };
   }
 
   return { userSites };
@@ -396,9 +398,9 @@ async function getSafeSD(safeSD: siteData) {
   //for quick param validation -- safeSD consuming functions also perform safety checks
 
   let { site, cron, range } = safeSD;
-  site = (await safeSite(site))!;
-  cron = await safeCron(cron);
-  range = await safeRange(range);
+  site = safeSite(site)!;
+  cron = safeCron(cron);
+  range = safeRange(range!);
 
   if (!site || !cron) return null;
   return { site, cron, range };
@@ -434,7 +436,7 @@ type signUser = {
   siteData?: siteData;
 };
 
-type siteData = {
+export type siteData = {
   site: string;
   cron: string;
   range?: range;

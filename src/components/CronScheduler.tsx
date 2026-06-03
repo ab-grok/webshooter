@@ -1,13 +1,12 @@
 // components/CronScheduler.tsx
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   Search,
   Play,
   AlertCircle,
-  Check,
   Clock,
   ExternalLink,
   Loader2,
@@ -24,21 +23,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import React from "react";
+import { siteData, userData } from "@/lib/types";
+import { modalState } from "./Navbar";
+import { safeCron, safeSite } from "@/lib/utils";
+import { scheduleShot } from "@/lib/actions";
+import { useErrContext } from "@/app/(main)/ErrContext";
+import { cronToText, months, weekDays } from "@/lib/dateformatter";
 
-interface CronSchedulerProps {
-  user: string;
-  onScheduled?: () => void;
+interface cronScheduler {
+  resetForm: number; //math random for resetting after user signs up;
+  userData: userData | undefined; //is defined when user is validated/logged in
+  setSiteData: (fn: ((prev: setSiteData) => setSiteData) | setSiteData) => void;
+  setModalState: (fn: ((prev: modalState) => modalState) | modalState) => void;
 }
 
+type setSiteData = siteData | undefined;
 type TimeUnit = "minutes" | "hours" | "days" | "weeks" | "months";
 
-interface CronConfig {
+interface cronConfig {
   unit: TimeUnit;
   value: number;
 }
 
-// Generate cron expression from config
-function generateCronExpression(config: CronConfig): string {
+interface cronText {
+  cronConfig: cronConfig;
+  customCron: string;
+  useCustomCron: boolean;
+}
+
+// Generate preset cron expression from passed {unit, value}
+function generateCron(config: cronConfig): string {
   const { unit, value } = config;
 
   switch (unit) {
@@ -57,57 +72,37 @@ function generateCronExpression(config: CronConfig): string {
   }
 }
 
+function getScheduleDescription({
+  cronConfig,
+  customCron,
+  useCustomCron,
+}: cronText): string {
+  const { unit, value } = cronConfig;
+  if (useCustomCron) return `Custom: ${customCron}`;
+
+  switch (unit) {
+    case "minutes":
+      return `Every ${value} minute${value > 1 ? "s" : ""}`;
+    case "hours":
+      return `Every ${value} hour${value > 1 ? "s" : ""}`;
+    case "days":
+      return `Every ${value} day${value > 1 ? "s" : ""} at midnight`;
+    case "weeks":
+      return `Every ${weekDays[value]} at midnight`;
+    case "months":
+      return `Every ${value} month${value > 1 ? "s" : ""} on the 1st`;
+    default:
+      return "";
+  }
+}
+
 // Validate cron expression format
-function validateCronExpression(cron: string): boolean {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-
-  const patterns = [
-    /^(\*|(\*\/)?[0-9]+|[0-9]+(,[0-9]+)*)$/, // minute (0-59)
-    /^(\*|(\*\/)?[0-9]+|[0-9]+(,[0-9]+)*)$/, // hour (0-23)
-    /^(\*|(\*\/)?[0-9]+|[0-9]+(,[0-9]+)*)$/, // day of month (1-31)
-    /^(\*|(\*\/)?[0-9]+|[0-9]+(,[0-9]+)*)$/, // month (1-12)
-    /^(\*|[0-9]+(,[0-9]+)*|[0-9]+-[0-9]+)$/, // day of week (0-6)
-  ];
-
-  return parts.every((part, i) => patterns[i].test(part));
+function validateCron(cron: string): boolean {
+  if (safeCron(cron)) return true;
+  return false;
 }
 
-// Parse URL and extract hostname
-function extractHostname(url: string): string {
-  try {
-    let processedUrl = url.trim();
-    if (
-      !processedUrl.startsWith("http://") &&
-      !processedUrl.startsWith("https://")
-    ) {
-      processedUrl = `https://${processedUrl}`;
-    }
-    const urlObj = new URL(processedUrl);
-    return urlObj.hostname;
-  } catch {
-    return url;
-  }
-}
-
-// Validate URL
-function isValidUrl(url: string): boolean {
-  try {
-    let processedUrl = url.trim();
-    if (
-      !processedUrl.startsWith("http://") &&
-      !processedUrl.startsWith("https://")
-    ) {
-      processedUrl = `https://${processedUrl}`;
-    }
-    new URL(processedUrl);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const TIME_UNITS: { value: TimeUnit; label: string }[] = [
+const timeUnits: { value: TimeUnit; label: string }[] = [
   { value: "minutes", label: "Minutes" },
   { value: "hours", label: "Hours" },
   { value: "days", label: "Days" },
@@ -115,126 +110,118 @@ const TIME_UNITS: { value: TimeUnit; label: string }[] = [
   { value: "months", label: "Months" },
 ];
 
-const VALUE_OPTIONS: Record<TimeUnit, number[]> = {
-  minutes: [1, 5, 10, 15, 30],
+const valueOptions: Record<TimeUnit, number[]> = {
+  minutes: [10, 15, 30],
   hours: [1, 2, 4, 6, 12],
   days: [1, 2, 3, 7],
-  weeks: [0, 1, 2, 3, 4, 5, 6], // Day of week (0 = Sunday)
+  weeks: [1, 2, 3, 4, 5, 6, 7], // Day of week (1 = Sunday);
   months: [1, 2, 3, 6],
 };
 
-const WEEK_DAYS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
-
-export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
-  const [url, setUrl] = useState("");
-  const [cronConfig, setCronConfig] = useState<CronConfig>({
+function CronScheduler({
+  userData,
+  resetForm,
+  setSiteData,
+  setModalState,
+}: cronScheduler) {
+  const [site, setSite] = useState("");
+  const [cronConfig, setCronConfig] = useState<cronConfig>({
     unit: "hours",
     value: 1,
   });
   const [customCron, setCustomCron] = useState("");
   const [useCustomCron, setUseCustomCron] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null); //displayed in interface.
+  const [localResetForm, setLocalResetForm] = useState(0);
+  const { setErrBody } = useErrContext();
 
   // Memoize cron expression
-  const cronExpression = useMemo(() => {
+  const cron = useMemo(() => {
     if (useCustomCron) return customCron;
-    return generateCronExpression(cronConfig);
+    return generateCron(cronConfig);
   }, [useCustomCron, customCron, cronConfig]);
 
   // Validation
-  const urlError = useMemo(() => {
-    if (!url) return null;
-    if (!isValidUrl(url)) return "Please enter a valid URL";
+  const siteError = useMemo(() => {
+    if (!site) return null;
+    if (!safeSite(site)) return "Please enter a valid URL";
     return null;
-  }, [url]);
+  }, [site]);
 
   const cronError = useMemo(() => {
-    if (useCustomCron && customCron && !validateCronExpression(customCron)) {
+    if (useCustomCron && customCron && !validateCron(customCron)) {
       return "Invalid cron expression format";
     }
     return null;
   }, [useCustomCron, customCron]);
 
-  const canSubmit = url && !urlError && !cronError && cronExpression;
+  const canSubmit = site && !siteError && !cronError && cron;
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
 
-    setIsSubmitting(true);
+    //site data available in top fn, can be called after user reg.
+    setSiteData({ site, cron, active: true });
+
+    //Transitions framer to sign up dialog
+    if (!userData?.user) {
+      setModalState("S");
+      return;
+    }
+
+    setIsSubmitting(true); //triggers loader
     setError(null);
-    setSuccess(false);
 
-    try {
-      const site = extractHostname(url);
-      // await scheduleCron({
-      //   site,
-      //   cron: cronExpression,
-      //   range: "full", // TODO: Make configurable if needed
-      //   user,
-      // });
-
-      setSuccess(true);
-      setTimeout(() => {
-        setSuccess(false);
-        onScheduled?.();
-      }, 2000);
-
-      // Reset form
-      setUrl("");
-      setCronConfig({ unit: "hours", value: 1 });
-      setCustomCron("");
-    } catch (err) {
-      // setError(parseApiError(err));
-    } finally {
-      setIsSubmitting(false);
+    //On error: Display danger notification
+    const { error } = await scheduleShot({ site, cron });
+    if (error) {
+      const e = { label: "Schedule Cron Error!", msg: error };
+      setErrBody(e);
     }
-  }, [canSubmit, url, cronExpression, user, onScheduled]);
 
+    //On success: Displays success notification
+    const s = {
+      label: "Schedule Cron Success",
+      msg: `Your cron is now set, it runs ${cronToText(cron)}`,
+    };
+    setErrBody(s);
+
+    // Reset form
+    setLocalResetForm(Math.random());
+
+    setIsSubmitting(false);
+  }, [canSubmit, site, cron, userData]);
+
+  //Resets form: Triggered from outside and inside the component
+  useEffect(() => {
+    if (!resetForm && !localResetForm) return;
+
+    setSite("");
+    setCronConfig({ unit: "hours", value: 1 });
+    setCustomCron("");
+  }, [resetForm, localResetForm]);
+
+  //returns weekday or number -- which serves well for time units besides weekday
   const getValueLabel = (unit: TimeUnit, value: number): string => {
-    if (unit === "weeks") {
-      return WEEK_DAYS[value];
-    }
+    if (unit == "weeks") return weekDays[value];
+    if (unit == "months") return months[value];
+
     return String(value);
   };
 
-  const getScheduleDescription = (): string => {
-    const { unit, value } = cronConfig;
-    if (useCustomCron) return `Custom: ${customCron}`;
-
-    switch (unit) {
-      case "minutes":
-        return `Every ${value} minute${value > 1 ? "s" : ""}`;
-      case "hours":
-        return `Every ${value} hour${value > 1 ? "s" : ""}`;
-      case "days":
-        return `Every ${value} day${value > 1 ? "s" : ""} at midnight`;
-      case "weeks":
-        return `Every ${WEEK_DAYS[value]} at midnight`;
-      case "months":
-        return `Every ${value} month${value > 1 ? "s" : ""} on the 1st`;
-      default:
-        return "";
-    }
-  };
-
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    //Use Zod schema
+    <motion.div
+      layout
+      className="scheduleGradient cronBox border-border/50 flex gap-6 rounded-3xl p-4 backdrop-blur-3xl"
+    >
       {/* URL Input & Preview */}
-      <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+      <Card className="cardGradient border-border/50 border-2 shadow-md backdrop-blur-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Search className="text-primary h-5 w-5" />
-            Website URL
+            Live Preview
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -244,14 +231,14 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
               <Input
                 id="url"
                 type="url"
-                placeholder="https://example.com"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                className={`pr-10 ${urlError ? "border-destructive" : ""}`}
+                placeholder="example.com/page"
+                value={site}
+                onChange={(e) => setSite(e.target.value)}
+                className={`pr-10 ${siteError ? "border-destructive" : ""}`}
               />
-              {url && !urlError && (
+              {site && !siteError && (
                 <a
-                  href={url.startsWith("http") ? url : `https://${url}`}
+                  href={site.startsWith("http") ? site : `https://${site}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-muted-foreground hover:text-primary absolute top-1/2 right-3 -translate-y-1/2"
@@ -261,11 +248,13 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
                 </a>
               )}
             </div>
-            {urlError && <p className="text-destructive text-xs">{urlError}</p>}
+            {siteError && (
+              <p className="text-destructive text-xs">{siteError}</p>
+            )}
           </div>
 
           {/* Live Preview */}
-          {url && !urlError && (
+          {site && !siteError && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
@@ -274,13 +263,13 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
             >
               <div className="border-border bg-muted/50 flex items-center justify-between border-b px-3 py-2">
                 <span className="text-muted-foreground text-xs">Preview</span>
-                <span className="text-muted-foreground font-mono text-xs">
-                  {extractHostname(url)}
+                <span className="text-muted-foreground truncate font-mono text-xs">
+                  {safeSite(site)}
                 </span>
               </div>
               <div className="aspect-video">
                 <iframe
-                  src={url.startsWith("http") ? url : `https://${url}`}
+                  src={site.startsWith("http") ? site : `https://${site}`}
                   className="h-full w-full"
                   title="Website preview"
                   sandbox="allow-scripts allow-same-origin"
@@ -292,7 +281,8 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
       </Card>
 
       {/* Cron Configuration */}
-      <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+
+      <Card className="border-border/50 cardGradient border-2 shadow-md backdrop-blur-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Clock className="text-primary h-5 w-5" />
@@ -301,14 +291,14 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Unit/Value Selection */}
-          <div className="space-y-4">
+          <motion.div layout className="space-y-4">
             <div className="flex items-center gap-2">
               <Label className="text-sm">Capture every</Label>
               <Button
                 variant={useCustomCron ? "outline" : "secondary"}
                 size="sm"
                 onClick={() => setUseCustomCron(false)}
-                className="text-xs"
+                className="cursor-pointer text-xs"
               >
                 Simple
               </Button>
@@ -316,107 +306,139 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
                 variant={useCustomCron ? "secondary" : "outline"}
                 size="sm"
                 onClick={() => setUseCustomCron(true)}
-                className="text-xs"
+                className="cursor-pointer text-xs"
               >
                 Custom
               </Button>
             </div>
-
-            <AnimatePresence mode="wait">
+            <LayoutGroup>
               {!useCustomCron ? (
-                <motion.div
-                  key="simple"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="grid grid-cols-2 gap-4"
-                >
-                  <div className="space-y-2">
-                    <Label htmlFor="value">Value</Label>
-                    <Select
-                      value={String(cronConfig.value)}
-                      onValueChange={(v) =>
-                        setCronConfig((prev) => ({ ...prev, value: Number(v) }))
-                      }
+                <AnimatePresence key="1" mode="wait">
+                  <motion.div
+                    key="simple"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.1 }}
+                    className="grid grid-cols-2 gap-4"
+                  >
+                    <motion.div
+                      whileHover={{ x: 3 }}
+                      transition={{ duration: 1 }}
+                      className="space-y-2"
                     >
-                      <SelectTrigger id="value">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VALUE_OPTIONS[cronConfig.unit].map((val) => (
-                          <SelectItem key={val} value={String(val)}>
-                            {getValueLabel(cronConfig.unit, val)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <Label htmlFor="value">Value</Label>
+                      <Select
+                        value={String(cronConfig.value)}
+                        onValueChange={(v) =>
+                          setCronConfig((prev) => ({
+                            ...prev,
+                            value: Number(v),
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="value">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {valueOptions[cronConfig.unit].map((val) => (
+                            <SelectItem key={val} value={String(val)}>
+                              {getValueLabel(cronConfig.unit, val)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </motion.div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="unit">Unit</Label>
-                    <Select
-                      value={cronConfig.unit}
-                      onValueChange={(v) =>
-                        setCronConfig((prev) => ({
-                          ...prev,
-                          unit: v as TimeUnit,
-                          value: VALUE_OPTIONS[v as TimeUnit][0],
-                        }))
-                      }
+                    <motion.div
+                      whileHover={{ x: -2 }}
+                      transition={{ duration: 1 }}
+                      className="space-y-2"
                     >
-                      <SelectTrigger id="unit">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TIME_UNITS.map((unit) => (
-                          <SelectItem key={unit.value} value={unit.value}>
-                            {unit.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </motion.div>
+                      <Label className="cursor-pointer" htmlFor="unit">
+                        Unit
+                      </Label>
+                      <Select
+                        value={cronConfig.unit}
+                        onValueChange={(v) =>
+                          setCronConfig({
+                            unit: v as TimeUnit,
+                            value: valueOptions[v as TimeUnit][0],
+                          })
+                        }
+                      >
+                        <SelectTrigger className="cursor-pointer" id="unit">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {timeUnits.map((unit) => (
+                            <SelectItem
+                              className="cursor-pointer"
+                              key={unit.value}
+                              value={unit.value}
+                            >
+                              {unit.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </motion.div>
+                  </motion.div>
+                </AnimatePresence>
               ) : (
-                <motion.div
-                  key="custom"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="space-y-2"
-                >
-                  <Label htmlFor="custom-cron">Cron Expression</Label>
-                  <Input
-                    id="custom-cron"
-                    placeholder="* * * * *"
-                    value={customCron}
-                    onChange={(e) => setCustomCron(e.target.value)}
-                    className={`font-mono ${cronError ? "border-destructive" : ""}`}
-                  />
-                  {cronError && (
-                    <p className="text-destructive text-xs">{cronError}</p>
-                  )}
-                  <p className="text-muted-foreground text-xs">
-                    Format: minute hour day-of-month month day-of-week
-                  </p>
-                </motion.div>
+                <AnimatePresence key="2" mode="wait">
+                  <motion.div
+                    key="custom"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.1 }}
+                    className="space-y-2"
+                  >
+                    <Label htmlFor="custom-cron">Cron Expression</Label>
+                    <Input
+                      id="custom-cron"
+                      placeholder="* * * * *"
+                      value={customCron}
+                      onChange={(e) => setCustomCron(e.target.value)}
+                      className={`font-mono ${cronError ? "border-destructive" : ""}`}
+                    />
+                    <AnimatePresence>
+                      {cronError && (
+                        <motion.p
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -5 }}
+                          className="text-destructive text-xs"
+                        >
+                          {cronError}
+                        </motion.p>
+                      )}
+                      <p className="text-muted-foreground text-xs">
+                        Format: minute hour day-of-month month day-of-week
+                      </p>
+                    </AnimatePresence>
+                  </motion.div>
+                </AnimatePresence>
               )}
-            </AnimatePresence>
-          </div>
+            </LayoutGroup>
+          </motion.div>
 
           {/* Schedule Preview */}
           <div className="border-border bg-muted/30 rounded-lg border p-4">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground text-sm">Schedule:</span>
               <span className="text-sm font-medium">
-                {getScheduleDescription()}
+                {getScheduleDescription({
+                  cronConfig,
+                  customCron,
+                  useCustomCron,
+                })}
               </span>
             </div>
             <div className="mt-2 flex items-center justify-between">
               <span className="text-muted-foreground text-sm">Cron:</span>
-              <code className="text-primary font-mono text-sm">
-                {cronExpression}
-              </code>
+              <code className="text-primary font-mono text-sm">{cron}</code>
             </div>
           </div>
 
@@ -434,7 +456,8 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
                 </Alert>
               </motion.div>
             )}
-            {success && (
+            //use errBody
+            {/* {success && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -447,12 +470,12 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
                   </AlertDescription>
                 </Alert>
               </motion.div>
-            )}
+            )} */}
           </AnimatePresence>
 
           {/* Submit Button */}
           <Button
-            className="w-full gap-2"
+            className="w-full cursor-pointer gap-2"
             disabled={!canSubmit || isSubmitting}
             onClick={handleSubmit}
           >
@@ -461,10 +484,16 @@ export function CronScheduler({ user, onScheduled }: CronSchedulerProps) {
             ) : (
               <Play className="h-4 w-4" />
             )}
-            {isSubmitting ? "Scheduling..." : "Schedule Capture"}
+            {!userData?.user
+              ? "Sign Up"
+              : isSubmitting
+                ? "Setting Schedule..."
+                : "Schedule Capture"}
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </motion.div>
   );
 }
+
+export default React.memo(CronScheduler);

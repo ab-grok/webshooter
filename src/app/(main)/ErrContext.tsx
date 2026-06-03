@@ -11,7 +11,7 @@ import {
 
 export type errBody = {
   msg?: string;
-  danger?: boolean;
+  danger?: boolean; //is true on default.
   label?: string;
   fn?: () => void;
   fnName?: string;

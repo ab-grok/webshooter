@@ -236,7 +236,7 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="bg-background flex h-screen w-screen flex-col">
+    <div className="bg-background overflow-hi flex h-screen w-screen flex-col">
       {/* Navbar */}
       <Navbar
         //create contextMenu for these functions in Shots > gallery
