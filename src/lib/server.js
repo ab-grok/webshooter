@@ -201,7 +201,7 @@ export async function getCronSites(cron) {
       let erred;
 
       const r2 =
-        await db`select s."lastLog" from "private"."users" inner join "private"."sessions" s on uuid = s.uuid where username = ${user} `;
+        await db`select s."lastLog" from "private"."users" u inner join "private"."sessions" s on u.uuid = s.uuid where username = ${user} `;
       const lastLog = r2?.[0]?.lastLog;
 
       console.log("in getCronSites: ", { user, lastLog });
@@ -912,7 +912,7 @@ export async function checkUser({ username, password }) {
   try {
     if (!username) throw { error: "Missing credentials" };
     const r =
-      await db`select username as user, password as pass, uuid, s."sessionId" as "sid" from "private"."users" left join "private"."sessions" s on uuid = s.uuid where username = ${username}`;
+      await db`select username as user, password as pass, uuid, s."sessionId" as "sid" from "private"."users" u left join "private"."sessions" s on u.uuid = s.uuid where username = ${username}`;
     if (!r.length) throw { error: "User does not exist" };
 
     const samePass = await bcrypt.compare(password, r[0].pass);
@@ -1118,7 +1118,7 @@ export async function createSession(password, username, expires) {
     const cookie = await createCookie();
     const token = await getToken(cookie);
     const r1 = //is this valid sql?
-      await db`update "private"."sessions" set "sessionId" = ${token}, expires = ${expires} left join "private"."users" u on uuid = u.uuid where uuid = ${uid} returning u.username`;
+      await db`update "private"."sessions" s set "sessionId" = ${token}, expires = ${expires} left join "private"."users" u on s.uuid = u.uuid where uuid = ${uid} returning u.username`;
 
     //can set fingerprint ID -- nope, handled elsewhere
 
@@ -1144,7 +1144,7 @@ export async function getSession({ token, expires }) {
 
     if (!expires) {
       r =
-        await db`select u.username as user, uuid, expires, u.created as joined from "private"."sessions" inner join "private"."users" u on uuid = u.uuid where "sessionId" = ${token}`;
+        await db`select u.username as user, uuid, expires, u.created as joined from "private"."sessions" s inner join "private"."users" u on s.uuid = u.uuid where "sessionId" = ${token}`;
 
       if (!r[0]) throw { error: "Unknown user" };
       if (new Date() > new Date(r[0].expires))

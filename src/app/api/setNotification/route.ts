@@ -12,7 +12,7 @@ export async function POST(req: Request) {
 
     const msg = (await req.json()).msg;
 
-    if (!msg) throw { message: "Error getting notification msg from worker" };
+    if (!msg) throw { message: "Worker sent empty 'msg' to setNotification." };
 
     const noti = { msgData: { msg, danger: true }, logError: true };
 
