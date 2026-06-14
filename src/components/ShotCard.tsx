@@ -12,7 +12,7 @@ import { formatRelativeTime } from "@/lib/dateformatter";
 import type {
   dCacheReturn,
   delShotType,
-  getDownloadCache,
+  getUrlBlob,
   handleViewed,
   selectedShot,
   shotData,
@@ -29,7 +29,7 @@ interface ShotCardProps {
   onViewed: ({ id }: handleViewed) => Promise<void>;
   onDelete: ({ ids }: delShotType) => void;
   toggleSelect: ({}: selectedShot) => void;
-  getDownloadCache: ({ key, date }: getDownloadCache) => dCacheReturn;
+  getUrlBlob: ({ key, date }: getUrlBlob) => dCacheReturn;
   swiperId: number;
 }
 
@@ -42,7 +42,7 @@ function ShotCard({
   onDelete,
   toggleSelect,
   swiperId,
-  getDownloadCache,
+  getUrlBlob,
 }: ShotCardProps) {
   const [markingViewed, setMarkingViewed] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -72,7 +72,7 @@ function ShotCard({
   const downloadShot = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation(); //prevent this click from triggering card's onClick
     const s = await filterPromise([
-      getDownloadCache({ key: shot.shotKey, date: shot.date }),
+      getUrlBlob({ url: shot.shotUrl, key: shot.shotKey, date: shot.date }),
     ]);
 
     const { error } = await download(s);
@@ -80,12 +80,13 @@ function ShotCard({
     if (error) setErrBody({ msg: error, label: "Download Shot Error!" });
   }, []);
 
-  //Calls getDownloadCache for html and writes to clipboard!
+  //Calls getUrlBlob for html and writes to clipboard!
   const copyHtml = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const hProp = { key: shot.htmlKey, date: shot.date, isHtml: true };
-      const html = await getDownloadCache(hProp);
+      const hProp1 = { isHtml: true, date: shot.date };
+      const hProp2 = { ...hProp1, url: shot.shotUrl, key: shot.htmlKey };
+      const html = await getUrlBlob(hProp2);
       if (!html) throw "Html undefined!";
       await navigator.clipboard.writeText(html.fileData as string);
       setCopied(true);
@@ -101,8 +102,10 @@ function ShotCard({
     //call downloader passing html as text/plain or perhaps there's a type for that
     e.stopPropagation();
     try {
-      const hProp = { key: shot.htmlKey, date: shot.date, isHtml: true };
-      const html = await getDownloadCache(hProp);
+      const hProp0 = { url: shot.htmlUrl, key: shot.htmlKey };
+      const hProp1 = { ...hProp0, date: shot.date, isHtml: true };
+
+      const html = await getUrlBlob(hProp1);
       if (!html) throw "Could not get HTML from Download Cache!";
       const { error } = await openInNewTab(html);
       if (error) throw error;

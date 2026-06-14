@@ -1,6 +1,4 @@
-// JWT_SECRET	Secret
-// SHOOTERAPI	Plain text
-// SHOOTER_AGENT	Plain text
+//webworker.js
 
 import puppeteer from "@cloudflare/puppeteer";
 import * as jose from "jose";
@@ -12,57 +10,64 @@ export default {
   async fetch(req, env) {
     try {
       const token = req.headers.get("Authorization");
+      if (!token) throw "Missing Authorization Token!";
       const secret = new TextEncoder().encode(env.JWT_SECRET);
       await jose.jwtVerify(token, secret); // throws when verification fails so no need for return error.
 
+      let reqBody = await req.json();
       const url = new URL(req.url);
-      const getShotUrls = url.searchParams.get("getShotUrls"); //expects array
-      const getShot = url.searchParams.get("getShot"); //expects array
-      const getHtml = url.searchParams.get("getHtml"); //expects string
+      const getUrls = url.searchParams.get("getUrls"); //expects {shotKey, htmlKey}[]
       const delShot = url.searchParams.get("delShot"); //expects array
+      // const getShot = url.searchParams.get("getShot"); //expects string -- Deprecated -- Shot is downloaded directly from presignedURL
+      // const getHtml = url.searchParams.get("getHtml"); //expects string -- Deprecated -- Shot is downloaded directly from presignedURL
 
-      if (!getShotUrls && !delShot && !getHtml && !getShot)
-        throw { error: "Invalid search param" };
+      if (!getUrls && !delShot) throw { error: "Invalid search param" };
 
-      if (getShot) {
-        const shotKey = (await req.json()).key;
+      if (getUrls) {
+        const keysData = reqBody; //this is how you access the body?
 
-        const shotBin = await env.SHOT_BUCKET.get(shotKey); //Expecting the binary which is a Uint8Array I reckon? or is it an ArrayBuffer -- need this for download parsing.
-        if (!shotBin) throw { error: "R2 shot not found" };
+        if (!keysData.length) throw { error: "Empty keysData array!" };
 
-        return Res({ shotBin });
-      }
-
-      if (getShotUrls) {
-        //imageUrl: {url, key}[]
-        //body.keys: string[]
-        const shotKeys = (await req.json()).keys;
-        if (!shotKeys.length) throw { error: "Empty keys array!" };
+        const urlData = [];
         const expiresIn = 3600 * 24 * 7;
+        for (const { shotKey, htmlKey } of keysData) {
+          const sUrl = await env.SHOT_BUCKET.getSignedUrl(shotKey, {
+            expiresIn,
+          });
+          const hUrl = await env.SHOT_BUCKET.getSignedUrl(htmlKey, {
+            expiresIn,
+          });
 
-        const keysData = await Promise.all(
-          shotKeys.map((key) => {
-            const url = await env.SHOT_BUCKET.getSignedUrl(key, { expiresIn });
-            return { url, key };
-          }),
-        );
+          urlData.push({ shotUrl: sUrl, htmlUrl: hUrl, shotKey });
+        }
 
-        if (!keysData.length) throw { error: "No R2 shots for passed keys!" };
+        if (!urlData.length) throw { error: "No R2 shots for passed keys!" };
 
-        return Res({ keysData });
+        return Res(urlData);
       }
 
-      if (getHtml) {
-        const htmlKey = (await req.json()).key;
-        const html = await env.SHOT_BUCKET.get(htmlKey)?.text();
-        if (!html) throw { error: "R2 html not found!" };
+      // //Deprecated. Can download from presignedUrls.
+      // if (getShot) {
+      //   const shotKey = (reqBody).key;
+      //
+      //   const shotBin = await env.SHOT_BUCKET.get(shotKey); //Expecting the binary which is a Uint8Array I reckon? or is it an ArrayBuffer -- need this for download parsing.
+      //   if (!shotBin) throw { error: "R2 shot not found" };
 
-        return Res({ html });
-      }
+      //   return Res(await shotBin.arrayBuffer());
+      // }
+      //
+      // //Deprecated. Can download with presignedUrls
+      // if (getHtml) {
+      //   const htmlKey = (reqBody).key;
+      //   const html = await env.SHOT_BUCKET.get(htmlKey);
+      //   if (!html) throw { error: "R2 html not found!" };
+
+      //   return Res({ html: await html.text() });
+      // }
 
       //await a flatmap of [shot,html] per shotKey deletion
       if (delShot) {
-        const shotKeyArr = (await req.json()).keys;
+        const shotKeyArr = reqBody.keys;
 
         const delPromises = shotKeyArr.flatMap((shotKey) => {
           const htmlKey = shotKey
@@ -82,13 +87,14 @@ export default {
 
       return Res({ API: "Active!" });
     } catch (e) {
-      return Res(e.error || e, "error");
+      console.error(e);
+      return Res({ error: e?.error || e });
     }
   },
 
+  //crons execute this function on schedule
+  //will probably handle multicrons (crons with intersecting schedules) by updating a durable object with cron schedule and filtering.
   async scheduled(event, env, ctx) {
-    //will probably handle multicrons (crons with intersecting schedules) by updating a durable object with cron schedule and filtering.
-
     const cron = event.cron;
 
     try {
@@ -99,6 +105,7 @@ export default {
 
       console.log("In scheduled", { Auth, data });
       const { readySites, id, error } = data;
+      if (error) throw error;
       if (!readySites) throw "Could not get readySites for Cron: " + cron;
 
       const shotProps = { readySites, id, cron, Auth, env };
@@ -107,28 +114,33 @@ export default {
       console.error("Error in scheduled: ", e);
 
       const body = { msg: "Error in scheduled: " + JSON.stringify(e) };
-      const fetchProps = {cron, env, body, method: "POST" };
+      const fetchProps = { cron, env, body, method: "POST" };
       await Fetch({ ...fetchProps, endpoint: "/setNotification" });
     }
   },
 };
 
+//function for taking and stroing Shots and storing HTML
 async function takeShots({ readySites, id, cron, Auth, env }) {
+  let browser;
   try {
-    const browser = await puppeteer.launch(env.CHROME);
+    browser = await puppeteer.launch(env.CHROME);
 
     console.log("in takeShots", { readySites, id, cron, Auth, env });
     //loop may break free tier's 10ms CPU time limit. -- eased now since API calls are made to
     for (const { site, range, user } of readySites) {
-      try {
-        if (!site || !user)
-          throw "Missing params. Site: " + site + ", User: " + user;
+      if (!site || !user)
+        throw "Missing params. Site: " + site + ", User: " + user;
 
-        const page = await browser.newPage();
+      let page;
+      try {
+        page = await browser.newPage();
         const UA = env.SHOOTER_AGENT; //"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
         await page.setUserAgent(UA);
 
-        const stats = await page.goto(site);
+        const pSite = !site.startsWith("http") ? `https://${site}` : site;
+
+        const stats = await page.goto(pSite);
 
         if (stats.status() >= 400) {
           console.error(`in takeShots. Page broken. Status`, stats);
@@ -149,8 +161,6 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
 
         const fetchProps = { cron, Auth, env, endpoint: "/makeEntry" };
         await Fetch({ ...fetchProps, method: "POST", body: shotData });
-
-        //run page.close() -- may be cpu costly
       } catch (e) {
         console.error("Error in takeShot > for loop: ", e);
 
@@ -159,10 +169,10 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
         console.error(msg);
         await Fetch({ ...fetchProps, endpoint: "/setNotification" }); //Check `src/app/api/setNotification/route.ts` that I access 'msg' correctly?
       } finally {
+        await page?.close();
       }
     }
 
-    return;
     //make sure that not more than 5 users pegged to cron to maintain worker limits
   } catch (e) {
     console.error("Error in getShotUrls: ", e);
@@ -171,12 +181,12 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
     const fetchProps = { Auth, cron, env, body, method: "POST" };
     await Fetch({ ...fetchProps, endpoint: "/setNotification" });
   } finally {
-    if (browser) await browser.close();
+    await browser?.close();
   }
 }
 
 //--------> helper functions
-
+//custo fetch connects to next app api
 async function Fetch({ Auth, cron, env, body, endpoint, method }) {
   //body:{};
 
@@ -189,7 +199,7 @@ async function Fetch({ Auth, cron, env, body, endpoint, method }) {
     "Content-Type": "application/json",
   };
 
-  const res = await fetch(env.SHOOTERAPI + endpoint, {
+  const res = await fetch(env.SHOOTER_API + endpoint, {
     method,
     headers,
     ...(method != "GET" ? { body: JSON.stringify(body) } : {}),
@@ -202,8 +212,6 @@ async function Fetch({ Auth, cron, env, body, endpoint, method }) {
 
 //Custom function returning hashed key used in requests.
 async function createJWT({ cron, env }) {
-  //gets Uint8Array binary of secret
-
   const secret = new TextEncoder().encode(env.JWT_SECRET);
 
   return await new jose.SignJWT({ cron })
@@ -215,27 +223,28 @@ async function createJWT({ cron, env }) {
 
 //custom response function: stringifies body
 function Res(body, error) {
-  //do I have to strigify body when its an object?
-  const rBody = typeof  
+  // const aBody = body instanceof ArrayBuffer ? body : "";
+
   return new Response(JSON.stringify(body), {
     status: error ? 400 : 200,
+    headers: { "Content-Type": "application/json" },
   });
 }
 
 async function storeShot({ shot, html, cron, site, user, env }) {
   //get a date string in format: YYYY-MM-DD_hh.mm.ss
   let date = new Date().toLocaleString("sv-SE", { timeZone: "UTC" });
-  date = date.replace(/ /, "_").replace(/:/, ".");
+  date = date.replace(/\s+/, "_").replace(/:/, ".");
+  const sS = site.replace(/[\.]+/g, "_").replace(/\//g, "");
 
-  const shotKey = `shot/${user}/${site}_${date}.jpeg`;
-  const htmlKey = `html/${user}/${site}_${date}.html`;
+  const shotKey = `shot/${user}/${sS}_${date}.jpeg`;
+  const htmlKey = `html/${user}/${sS}_${date}.html`;
 
   if (!shot) shot = `Shot failed to save. Cron: ${cron}, site: ${site}`;
-  const contentType = shot ? "image/jpeg" : "text/plain";
 
   //what's the value of shotReturn here? wondering if I can getSignedUrl.
   const shotReturn = await env.SHOT_BUCKET.put(shotKey, shot, {
-    httpMetadata: { contentType },
+    httpMetadata: { contentType: "image/jpeg" },
   });
 
   const htmlReturn = await env.SHOT_BUCKET.put(htmlKey, html, {

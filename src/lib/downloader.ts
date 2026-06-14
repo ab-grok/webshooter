@@ -30,7 +30,7 @@ export function useDownloader(): downloader {
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
-      a.download = Array.isArray(file) ? name! : file.fileName;
+      a.download = Array.isArray(file) ? name! : file?.fileName;
       a.click();
       URL.revokeObjectURL(url);
 
@@ -73,9 +73,12 @@ export function useDownloader(): downloader {
 function createBlob(file: file) {
   const { fileType: type, fileData: data } = file;
 
-  if (data instanceof Uint8Array) {
-    const buffer = Buffer.from(data);
-    return new Blob([buffer], { type });
-  }
-  return new Blob([data], { type });
+  //Uint8Array <- base64 (image format) | binary format
+  //ArrayBuffer <- binary format
+  //Buffer.from -> consolidates all ArrayBufferLike to blob compatible
+  const isHtml = typeof data == "string";
+  if (data instanceof ArrayBuffer || data instanceof Uint8Array || isHtml)
+    return new Blob([data], { type });
+
+  throw "File data not supported; Type: " + type;
 }

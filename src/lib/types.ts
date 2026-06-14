@@ -5,6 +5,7 @@ export type shotData = {
   htmlKey: string; //may be problematic sending key, can switch to hash.
   shotKey: string;
   shotUrl: string;
+  htmlUrl: string;
 };
 
 export type downloadProps = {
@@ -32,7 +33,12 @@ export type handleDownload = {
   unique?: number; // Date.now() which will trigger fresh downloads from navbar
 };
 
-export type getDownloadCache = { key: string; isHtml?: boolean; date: string };
+export type getUrlBlob = {
+  url: string;
+  key: string;
+  isHtml?: boolean;
+  date: string;
+};
 export type dCacheReturn = Promise<file | undefined>;
 
 export type multiShots = {
@@ -43,7 +49,7 @@ export type multiShots = {
 export type file = {
   date?: string | Date; //date is not defined when used in getShots
   fileName: string;
-  fileData: Uint8Array | string;
+  fileData: Blob | string;
   fileType: string;
 };
 
@@ -70,7 +76,7 @@ export type siteData = {
 
 export type unviewedType = {
   site: string;
-  unvieweds: number[];
+  unvieweds: number[]; //id[]
 };
 
 export type handleViewed = {

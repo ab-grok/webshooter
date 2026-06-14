@@ -32,7 +32,7 @@ import type {
   dCacheReturn,
   delShotType,
   file,
-  getDownloadCache,
+  getUrlBlob,
   shotData,
 } from "@/lib/types";
 import { useDownloader } from "@/lib/downloader";
@@ -42,7 +42,7 @@ interface SelectedViewerProps {
   shot: shotData | undefined;
   onClose?: () => void;
   onDelete: ({ ids }: delShotType) => void;
-  getDownloadCache: ({ key, date, isHtml }: getDownloadCache) => dCacheReturn;
+  getUrlBlob: ({ key, date, isHtml }: getUrlBlob) => dCacheReturn;
 }
 
 type cursorPos = {
@@ -53,7 +53,7 @@ type cursorPos = {
 function SelectedViewer({
   shot,
   onClose,
-  getDownloadCache,
+  getUrlBlob,
   onDelete,
 }: SelectedViewerProps) {
   const { setErrBody } = useErrContext();
@@ -212,8 +212,8 @@ function SelectedViewer({
     try {
       if (!shot) throw "Shot is undefined!";
 
-      const prop = { key: shot.shotKey, date: shot.date };
-      const file = await getDownloadCache(prop);
+      const prop = { url: shot.shotUrl, key: shot.shotKey, date: shot.date };
+      const file = await getUrlBlob(prop);
       if (!file) throw "No file in download Cache";
 
       const { error } = await download(file);
@@ -226,8 +226,10 @@ function SelectedViewer({
 
   const getHtml = useCallback(async () => {
     if (!shot) return "";
-    const prop = { key: shot.htmlKey, date: shot.date, isHtml: true };
-    const file = await getDownloadCache(prop);
+    const prop: any = { url: shot.shotUrl, key: shot.htmlKey, date: shot.date };
+    prop["isHtml"] = true;
+
+    const file = await getUrlBlob(prop);
     if (!file) {
       setErrBody({ msg: "Could not get Html!", label: "Shot Html Error!" });
       return "";

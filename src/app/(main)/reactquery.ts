@@ -2,8 +2,6 @@
 
 import {
   delShot,
-  getR2Html,
-  getR2Shot,
   getShots,
   getSites,
   getUserData,
@@ -22,7 +20,6 @@ import {
 
 //Optimistically Deletes shots:idArray from useQuery data (which triggers UX update), then runs delShot (deleting from db);
 export function useMutateDel(site: string) {
-  //Do I initialise queryClient per function or once at top of page ?
   const queryClient = useQueryClient();
 
   const mutateShot = useMutation<
@@ -46,7 +43,7 @@ export function useMutateDel(site: string) {
             ...oldData,
             pages: oldData.pages.map((page) => ({
               ...page,
-              shots: page.shotsData.filter((s) => !ids?.includes(s.id)),
+              shotsData: page.shotsData.filter((s) => !ids?.includes(s.id)),
             })),
           };
         },
@@ -76,68 +73,77 @@ export function useMutateDel(site: string) {
   };
 }
 
-export function useMutateShotBinary(site: string) {
-  //DEL: Run in a loop to fetch shots one by one fitting vercel serverless fn 4.5mb payload limit;
-  //Checks that passed key is not in cache before fetching -- good
-  const queryClient = useQueryClient();
+// export function useMutateShotBinary(site: string) {
+//   //DEL: Run in a loop to fetch shots one by one fitting vercel serverless fn 4.5mb payload limit;
+//   //Checks that passed key is not in cache before fetching -- good
+//   const queryClient = useQueryClient();
 
-  const mutateShotBin = useMutation<
-    { shotBin: Uint8Array; shotKey: string },
-    { error: string },
-    { shotKey: string }
-  >({
-    mutationFn: async ({ shotKey }) => {
-      const { shotBin, error } = await getR2Shot(shotKey);
-      if (error) throw { error };
-      return { shotBin, shotKey };
-    },
-    onSuccess: ({ shotBin, shotKey }) => {
-      queryClient.setQueryData<any>([site, "downloadShots"], (prev = {}) => ({
-        ...prev,
-        [shotKey]: shotBin,
-      }));
-    },
-  });
+//   const mutateShotBin = useMutation<
+//     { shotBlob: Blob; shotUrl: string },
+//     Error,
+//     { shotUrl: string }
+//   >({
+//     mutationFn: async ({ shotUrl }) => {
+//       const res = await fetch(shotUrl);
 
-  return {
-    shotBinary: mutateShotBin.data,
-    getShotBinary: mutateShotBin.mutateAsync,
-    shotBinaryError: mutateShotBin.error,
-  };
-}
+//       let error = "";
+//       if (!res?.ok) {
+//         const e = (await res.json())?.error;
+//         error = "Could not fetch ShotBinary: " + error;
+//         throw new Error(error);
+//       }
 
-export function useMutateHtml(site: string) {
-  const queryClient = useQueryClient();
+//       const shotBlob = await res.blob();
+//       return { shotBlob, shotUrl };
+//     },
+//     onSuccess: ({ shotBlob, shotUrl }) => {
+//       queryClient.setQueryData<any>([site, "downloadShots"], (prev = {}) => ({
+//         ...prev,
+//         [shotUrl]: shotBlob,
+//       }));
+//     },
+//   });
 
-  const mutateHtml = useMutation<
-    { html: string; htmlKey: string },
-    { error: string },
-    { htmlKey: string }
-  >({
-    mutationFn: async ({ htmlKey }) => {
-      const { error, html } = await getR2Html(htmlKey);
-      if (error) throw { error };
-      return { html, htmlKey };
-    },
-    onSuccess: ({ html, htmlKey }) => {
-      queryClient.setQueryData<Record<string, string>>(
-        [site, "html"],
-        (prev) => ({
-          ...prev,
-          [htmlKey]: html,
-        }),
-      );
-    },
-  });
+//   return {
+//     shotBinary: mutateShotBin.data,
+//     getShotBinary: mutateShotBin.mutateAsync,
+//     shotBinaryError: mutateShotBin.error,
+//   };
+// }
 
-  return {
-    html: mutateHtml.data,
-    getHtml: mutateHtml.mutateAsync,
-    htmlError: mutateHtml.error,
-  };
-}
+// export function useMutateHtml(site: string) {
+//   const queryClient = useQueryClient();
+
+//   const mutateHtml = useMutation<
+//     { html: Blob; htmlKey: string },
+//     { error: string },
+//     { htmlKey: string }
+//   >({
+//     mutationFn: async ({ htmlKey }) => {
+//       const { error, html } = await getR2Html(htmlKey);
+//       if (error || !html) throw { error: error || "No Html Blob!" };
+//       return { html, htmlKey };
+//     },
+//     onSuccess: ({ html, htmlKey }) => {
+//       queryClient.setQueryData<Record<string, Blob>>(
+//         [site, "html"],
+//         (prev) => ({
+//           ...prev,
+//           [htmlKey]: html,
+//         }),
+//       );
+//     },
+//   });
+
+//   return {
+//     html: mutateHtml.data,
+//     getHtml: mutateHtml.mutateAsync,
+//     htmlError: mutateHtml.error,
+//   };
+// }
 
 //Calls setViewed when a shot is opened
+
 export function useMutateViewed(site: string) {
   const queryClient = useQueryClient();
 
@@ -160,7 +166,7 @@ export function useMutateViewed(site: string) {
             ...oldData,
             pages: oldData.pages.map((page) => ({
               ...page,
-              shots: page.shotsData.map((s: shotData) =>
+              shotsData: page.shotsData.map((s: shotData) =>
                 ids?.includes(s.id) ? { ...s, viewed: true } : s,
               ),
             })),

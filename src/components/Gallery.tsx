@@ -28,7 +28,7 @@ import type {
   dCacheReturn,
   delShotType,
   file,
-  getDownloadCache,
+  getUrlBlob,
   handleViewed,
   selectedShot,
   shotData,
@@ -42,7 +42,7 @@ import { useMutateViewed, useQueryShots } from "@/app/(main)/reactquery";
 import { useDownloader } from "@/lib/downloader";
 import ShotCard from "./ShotCard";
 import { useErrContext } from "@/app/(main)/ErrContext";
-import { filterPromise } from "./Shots";
+import { filterPromise, timing } from "./Shots";
 
 interface GalleryProps {
   site: string;
@@ -53,7 +53,7 @@ interface GalleryProps {
   delSelectedShots: number;
   downloadSelectedShots: number;
   viewSelectedShots: number;
-  getDownloadCache: ({ key, date }: getDownloadCache) => dCacheReturn;
+  getUrlBlob: ({ key, date }: getUrlBlob) => dCacheReturn;
   onOpenedShot: (shot: shotData) => void;
   onDeleteShot: ({ ids }: delShotType) => void; //deletes selectedShots when active
   onSelectedShots: (
@@ -82,7 +82,7 @@ function Gallery({
   delSelectedShots,
   viewSelectedShots,
   downloadSelectedShots,
-  getDownloadCache,
+  getUrlBlob,
   onOpenedShot, //unneeded: will select shots here and pass to selected shot -- false need in parent for selectedViewer
   onDeleteShot,
   onSelectedShots,
@@ -168,9 +168,9 @@ function Gallery({
       const selIds = selectedShots.map((s) => s.id!);
       const selShotKeys = siteShots
         ?.filter((s) => selIds?.includes(s.id))
-        .map((s) => ({ key: s.shotKey, date: s.date }))!;
+        .map((s) => ({ url: s.shotUrl, key: s.shotKey, date: s.date }))!;
 
-      const selShots0 = selShotKeys.map((s) => getDownloadCache(s));
+      const selShots0 = selShotKeys.map((s) => getUrlBlob(s));
       const selShots = await filterPromise(selShots0);
 
       const { error } = await download(selShots);
@@ -318,7 +318,7 @@ function Gallery({
   );
 
   //Alternative component B
-  if (!siteShots?.length && notLoading) {
+  if (false && !siteShots?.length && notLoading) {
     return (
       //CHANGE to framer motion and perform transforms on hover, click
       <div className="border-border bg-card/50 flex h-64 items-center justify-center rounded-lg border border-dashed">
@@ -375,24 +375,7 @@ function Gallery({
         )}
       </AnimatePresence>
 
-      {/* Navigation buttons */}
-      <Button
-        variant="secondary"
-        size="icon"
-        className="gallery-prev bg-background/70 hover:bg-background absolute top-1/2 left-0 z-10 flex size-15 -translate-y-1/2 rounded-full text-center backdrop-blur-sm"
-        aria-label="Previous screenshots"
-      >
-        <ChevronLeft className="size-10" />
-      </Button>
-
-      <Button
-        variant="secondary"
-        size="icon"
-        className="gallery-next bg-background/70 hover:bg-background absolute top-1/2 right-0 z-10 size-15 -translate-y-1/2 rounded-full backdrop-blur-sm"
-        aria-label="Next screenshots"
-      >
-        <ChevronRight className="size-10" />
-      </Button>
+      {/* Navigation buttons used to be here  */}
 
       {/* Swiper */}
       <div className="flex-1 p-4">
@@ -459,14 +442,15 @@ function Gallery({
                   site={site}
                   toggleSelect={toggleSelectShot}
                   swiperId={i}
-                  getDownloadCache={getDownloadCache}
+                  getUrlBlob={getUrlBlob}
                 />
               </SwiperSlide>
             ))}
 
           {
             // This is the component rendering in this testing phase
-            ((fetchingNextShots && !noMoreNext) ||
+            (true ||
+              (fetchingNextShots && !noMoreNext) ||
               (shotsLoading && !siteShots?.length)) &&
               Array.from({ length: 5 }).map((v, i) => (
                 <SwiperSlide key={`skeleton-newer-${i}`} className="!w-50">
@@ -478,37 +462,71 @@ function Gallery({
       </div>
 
       {/* Load more buttons for manual control */}
-      <div className="mt-4 flex justify-center gap-4">
+      <div className="mt-4 flex items-center justify-center gap-8 bg-blue-700">
         <Button
           variant="outline"
           size="sm"
           onClick={onReachBegining}
           disabled={fetchingPrevShots || noMorePrev}
-          className="bg-transparent text-xs"
+          className="rounded-full bg-transparent text-xs"
         >
           {fetchingPrevShots ? (
             <p className="mr-2 gap-2">
-              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-              Loading older...
+              <Loader2 className="mr-2 h-3 w-3 animate-spin rounded-full" />
+              Loading Older...
             </p>
           ) : (
-            <p className="mr-2"> Load older </p>
+            <p className="mr-2 cursor-pointer hover:ring-2"> Load Older </p>
           )}
         </Button>
+
+        {/* Navigation buttons */}
+        <Button
+          variant="secondary"
+          size="icon"
+          className="gallery-prev bg-background/50 hover:bg-background z-10 flex size-15 cursor-pointer rounded-3xl text-center shadow-sm backdrop-blur-sm hover:shadow-md hover:ring-2"
+          aria-label="Previous screenshots"
+        >
+          <motion.div
+            animate={{ x: 0 }}
+            transition={timing}
+            whileTap={{ x: -5 }}
+            whileHover={{ x: -10 }}
+          >
+            <ChevronLeft className="size-10" />
+          </motion.div>
+        </Button>
+
+        <Button
+          variant="secondary"
+          size="icon"
+          className="gallery-next bg-background/50 hover:bg-background z-10 size-15 cursor-pointer rounded-3xl shadow-sm backdrop-blur-sm hover:shadow-md hover:ring-2"
+          aria-label="Next screenshots"
+        >
+          <motion.div
+            animate={{ x: 0 }}
+            whileTap={{ x: 5 }}
+            transition={timing}
+            whileHover={{ x: 10 }}
+          >
+            <ChevronRight className="size-10" />
+          </motion.div>
+        </Button>
+
         <Button
           variant="outline"
           size="sm"
           onClick={onReachEnd}
           disabled={fetchingNextShots || noMoreNext}
-          className="bg-transparent text-xs"
+          className="rounded-full bg-transparent text-xs hover:ring-2"
         >
           {fetchingNextShots ? (
             <p className="mr-2 gap-2">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Loading newer...
+              Loading Newer...
             </p>
           ) : (
-            <p className="mr-2"> Load newer </p>
+            <p className="mr-2"> Load Newer </p>
           )}
         </Button>
       </div>

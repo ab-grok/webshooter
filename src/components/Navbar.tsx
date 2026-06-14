@@ -89,21 +89,25 @@ function Navbar({
     return allSitesUnvieweds.find((s) => s.site == selectedSite?.site);
   }, [selectedSite?.site, allSitesUnvieweds]);
 
+  //number of unviewd shots in db from curren selection.
   const dbUnviewedCurrAndBefore = useMemo(() => {
     const curr = (currId?.last || 0) + 1;
     return selectedSiteUnviewed?.unvieweds.filter((s) => s < curr).length || 0;
   }, [selectedSiteUnviewed]);
 
+  //number of unviewd shots in db after current selection.
   const dbUnviewedCurrAndAfter = useMemo(() => {
     const curr = (currId?.first || 0) - 1;
     return selectedSiteUnviewed?.unvieweds.filter((s) => s > curr).length || 0;
   }, [selectedSiteUnviewed]);
 
+  //number of unviewd shots after current selection in local render.
   const localUnviewedCurrAndAfter = useMemo(() => {
     const curr = (currId?.first || 0) - 1;
     return localUnviewed?.filter((s) => s > curr).length || 0;
   }, [localUnviewed]);
 
+  //number of unviewd shots before current selection in local render.
   const localUnviewedCurrAndBefore = useMemo(() => {
     const curr = (currId?.last || 0) + 1;
     return localUnviewed?.filter((s) => s < curr).length || 0;
@@ -148,11 +152,11 @@ function Navbar({
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            transition={{ ...timing }}
+            transition={{ ...timing, damping: 10 }}
             layout
             className={cn(
               //backdrop-blur does not work here, why so, Is it something to do with the absolute positioning -- trace the root of the commponent for certainty?
-              "backdrop-blur-4xl absolute top-20 left-1/2 z-4 -translate-x-1/2 rounded-4xl",
+              "backdrop-blur-4xl absolute top-20 left-1/2 z-50 -translate-x-1/2 rounded-4xl",
               modalState == "L"
                 ? "lg:left-300"
                 : modalState == "S"
@@ -164,14 +168,12 @@ function Navbar({
               <Auth signUp={modalState == "S"} logIn={modalState == "L"} />
             ) : (
               modalState == "C" && (
-                <motion.div>
-                  <CronScheduler
-                    userData={userData}
-                    resetForm={resetForm}
-                    setSiteData={setSiteData}
-                    setModalState={setModalState}
-                  />
-                </motion.div>
+                <CronScheduler
+                  userData={userData}
+                  resetForm={resetForm}
+                  setSiteData={setSiteData}
+                  setModalState={setModalState}
+                />
               )
             )}
           </motion.div>

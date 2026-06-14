@@ -1,7 +1,6 @@
 //To do:
 //Create notepad:jsonb r/w action
 //Create changeAdmin({del});
-
 "use server";
 
 import bcrypt from "bcryptjs";
@@ -10,11 +9,7 @@ import { v4 } from "uuid";
 import { unviewedType, shotData, downloadProps } from "./types";
 import { createCookie, createJWT, getToken } from "./actions";
 import { formatDate, isDate } from "./dateformatter";
-
-// async function DB(conn) {
-//   if (!db && conn) {
-//   }
-// }
+import { safeSite } from "./utils";
 
 const db = postgres(process?.env?.DB_CONN, {
   debug: (connection, query, params) => {
@@ -36,7 +31,7 @@ export async function makeEntry({ shotData }) {
     if (!shotKey || !htmlKey || !user || !site)
       throw { error: "Missing params" };
 
-    const sS = await safeSite(site, "noDots");
+    const sS = safeSite(site, "noDots");
     const u = db(user);
 
     if (!sS)
@@ -72,7 +67,8 @@ export async function makeEntry({ shotData }) {
   }
 }
 
-//Checked that the entry is not similar to a previous: obsolete since R2 -- or is there a non-manual method for enmass probing of R2 bucket entries for partial value matches
+//Checked that the entry is not similar to a previous:
+//Obsolete since R2 -- or is there a non-manual method for enmass probing of R2 bucket entries for partial value matches
 async function entryExists({ htmlData, user }) {
   try {
     //checks if the selected html range of new shot matches a previous entry.
@@ -110,7 +106,7 @@ export async function delPrevEntry({ cron, site, user }) {
     // storeLimit.setDate(storeLimit.getDate() - sD);
 
     //dels both shot and html -- htmlKey will be derived in worker
-    const shotCol = db(`${await safeSite(site, "noDots")}_shot_key`);
+    const shotCol = db(`${safeSite(site, "noDots")}_shot_key`);
     const u = db(user);
 
     //Q: I assume r2 returns rows of all deleted keys?
@@ -122,7 +118,7 @@ export async function delPrevEntry({ cron, site, user }) {
 
     if (r2.length) {
       //Q: does this accurately map the shotKey column?
-      const shotKeys = r2.map((shotData) => shotData.shotKey);
+      const shotKeys = r2.map((shotData) => shotData?.shotKey);
 
       const { error } = await deleteR2Shot(shotKeys);
       if (error) console.error("In delPrevEntry: " + error);
@@ -147,19 +143,22 @@ async function deleteR2Shot(shotKeysArr) {
 
     if (!shotKeysArr) throw { error: `Empty shotKeysArr: ${shotKeysArr}` };
     if (!Array.isArray(shotKeysArr)) {
-      const message = `shotKeysArr must be an array! shotKeysArr: ${shotKeysArr}`;
+      const error = `shotKeysArr must be an array! shotKeysArr: ${shotKeysArr}`;
       throw { error };
     }
 
     const Authorization = await createJWT();
 
-    const res = await fetch(`${process.env.SHOOTER_URL}?delShot=true`, {
+    const res = await fetch(`${process.env.WEBWORKER_URL}?delShot=true`, {
       method: "POST",
       headers: { Authorization, "Content-Type": "application/json" },
       body: JSON.stringify({ keys: shotKeysArr }),
     });
 
-    if (!res.ok) throw { error: await res.json() };
+    const e =
+      (await res?.json()) || (await res?.text()) || "Error deleting shot!";
+
+    if (!res.ok) throw { error: (await res.json())?.error || e };
     return { error: null };
   } catch (e) {
     console.error(e);
@@ -228,9 +227,16 @@ export async function getCronSites(cron) {
 
         if (delSitesErr || delCronErr || delWorkerErr) {
           erred = true;
-          const errors = { delSitesErr, delCronErr, delWorkerErr }.filter(
-            boolean,
-          ); //does this work?
+
+          const errorsArr = Object.entries({
+            delSitesErr,
+            delCronErr,
+            delWorkerErr,
+          });
+          const errors = Object.fromEntries(
+            errorsArr.filter(([key, val]) => Boolean(val)),
+          );
+
           errLogs.push({ user, cron, ...errors });
         }
       }
@@ -277,7 +283,7 @@ export async function getCronSites(cron) {
 export async function updateShotSchema({ site, user, del }) {
   //creates a table for user in root db with default cols. Can also delete siteCols (site)
   try {
-    const saferSite = await safeSite(site, "noDots");
+    const saferSite = safeSite(site, "noDots");
     if (!saferSite) throw { error: "Unsafe site: " + site };
     const { tableName, userSites } = await getUserSites({ user });
 
@@ -289,14 +295,14 @@ export async function updateShotSchema({ site, user, del }) {
       if (del)
         await db`create table "public".${u} (id serial primary key, date timestamptz default now())`;
       else
-        await db`create table "public".${u} (id serial primary key, date timestamptz default now(), viewed boolean default false, key_expires timestamptz default (now() + interval '7 days'), shot_url text, ${shotCol} text, ${htmlCol} text)`; //does this work as intended -- I'm careful about 'now()', '7 days'?
+        await db`create table "public".${u} (id serial primary key, date timestamptz default now(), viewed boolean default false, key_expires timestamptz default (now() + interval '7 days'), ${shotCol} text, ${htmlCol} text, shot_url text, html_url text)`; //does this work as intended -- I'm careful about 'now()', '7 days'?
     } else {
       const alterTb = db`alter table "public".${u}`;
       if (del) {
         await db`delete from public.${u} where ${htmlCol} is not null`;
         await db`${alterTb} drop column ${htmlCol}, drop column ${shotCol}`;
       } else
-        await db`${alterTb} add column if not exists viewed boolean default false, add column if not exists key_expires timestamptz, add column if not exists shot_url add column if not exists ${htmlCol} text, add column if not exists ${shotCol} text`;
+        await db`${alterTb} add column if not exists viewed boolean default false, add column if not exists key_expires timestamptz, add column if not exists ${htmlCol} text, add column if not exists ${shotCol} text, add column if not exists shot_url text, add column if not exists html_url text`;
     }
     return { user, saferSite, userSites };
   } catch (e) {
@@ -409,8 +415,8 @@ export async function updateCronTable({ safeSD, user, del }) {
         await db`update "private"."crons" set "cronData" = array(select c from unnest("cronData") as c where not (c ->> 'site' = ${site} and c ->> 'user' = ${user})) where cron = ${cron} returning "cronData"`;
       const r4a = r4?.[0]?.cronData;
 
-      if (!r4a || !r4a.length || (r4a.length == 1 && !r4a[0])) {
-        //no crons in schedule;
+      if (!r4a?.length || (r4a.length == 1 && !r4a[0])) {
+        //no sites in schedule;
         await db`delete from "private"."crons" where cron = ${cron}`;
         return { delWorker: true };
       }
@@ -423,7 +429,9 @@ export async function updateCronTable({ safeSD, user, del }) {
   } catch (e) {
     //if adding cron (!del): set userSite.inactive; del presumes userSites().del has already run
     const e0 = "In updateCronTable. Couldn't add cron to table.";
-    const e1 = e0 + !del ? "Setting site to inactive" : "";
+    const e1 = !del
+      ? e0 + "Setting site to inactive"
+      : "Trouble deleting cron!";
 
     const log = `${e1} ${JSON.stringify({ user, error: e })}`;
     console.error(log);
@@ -438,8 +446,8 @@ export async function updateWorker({ safeSD, user, del }) {
     //in future can do better schedule organisation: selecting high order schedules and probing db for intersecting crons; -- can take any cron check cron list for matching pattern eg a cron for /30mins and preexisting /10mins can share execute
     const { cron, site } = safeSD;
 
-    const shooterAPI = process.env.SHOOTER_API;
-    const shooterKey = process.env.SHOOTER_KEY;
+    const shooterAPI = process.env.WEBWORKER_API;
+    const shooterKey = process.env.WEBWORKER_KEY;
     console.log("in UpdateWorker. ", { shooterAPI, shooterKey });
     if (!shooterKey || !shooterAPI) throw { error: "env vars not found!" };
 
@@ -550,8 +558,8 @@ export async function getUserShots(shotSet) {
 
     if (!sites.length) throw { error: "User has no sites" };
 
-    const saferSite = await safeSite(site, "noDots");
-    const sS = await safeSite(site);
+    const saferSite = safeSite(site, "noDots");
+    const sS = safeSite(site);
     const hC = db(`${saferSite}_html_key`);
     const sC = db(`${saferSite}_shot_key`);
     const u = db(user);
@@ -572,32 +580,33 @@ export async function getUserShots(shotSet) {
     //Get user shot data from user's table;
     const clause = db`id ${n || (!n && !id0) ? db`>` : db`<`} ${id}`;
     let shotsData =
-      await db`select id, ${hC} as "htmlKey", ${sC} as "shotKey", shot_url as "shotUrl", date, viewed, key_expires as expires from "public".${u} where ${hC} is not null and ${clause} order by id asc limit 20`;
+      await db`select id, ${hC} as "htmlKey", ${sC} as "shotKey", shot_url as "shotUrl", html_url as "htmlUrl, date, viewed, key_expires as expires from "public".${u} where ${hC} is not null and ${clause} order by id asc limit 20`;
 
     if (!shotsData[0]) throw { error: "No rows in user table!" };
 
-    //Get new signedURLs for shotKeys with expired urls;
-    const expiresIn = new Date(Date.now() + 3600 * 24 * 7);
-    const expUrlKeys = shotsData
-      .filter((s) => new Date() > new Date(s.expires))
-      .map((s) => s.shotKey);
+    //fill expUrlKeys with keys whose 'expired' column is dated beyond last 7 days;
+    const keys = shotsData
+      .filter((s) => new Date(s.expires) < new Date())
+      .map((s) => ({ shotKey: s.shotKey, htmlKey: s.htmlKey }));
 
     if (expUrlKeys.length) {
-      //keysData: {key, url}[]
-      const { keysData, error } = await getSignedUrls(expUrlKeys);
-      if (error) throw { error: "Error getting new signed urls!" };
+      const expiresIn = new Date(Date.now() + 3600 * 24 * 7);
+      const { signedUrls, error } = await getSignedUrls(keys);
+
+      if (error || !signedUrls?.length)
+        throw { error: error || "Could not get new signed urls!" };
 
       //normalize shotsData array to include new signedUrls
       shotsData = shotsData.map((shot) => {
-        //if kD then shotUrl has expired: update;
-        const kD = keysData.find((kD) => kD.key == shot.shotKey);
-        return { ...shot, ...(kD ? { shotUrl: kD?.url } : {}) };
+        //if sU then shotUrl has expired, updates;
+        const sU = signedUrls.find((sU) => sU.shotKey == shot.shotKey);
+        return { ...shot, ...(sU ? sU : {}) };
       });
 
       //Update table with new signedUrls;
       const r4 =
-        //jsonb_array_elem() helps parse keysData for sql manipulation; keysData cast to jsonb but is jsonb[];
-        await db`update ${u} set "shotUrl" = kd ->> 'url', key_expires = ${expiresIn} from jsonb_array_elements(${keysData}::jsonb) as kd where ${sC} = kd ->> 'key' `;
+        //jsonb_array_elem() helps parse signedUrls for sql manipulation; signedUrls cast to jsonb but is jsonb[];
+        await db`update ${u} set "shotUrl" = 'sU' ->> 'shotUrl', html_url = 'sU' ->> 'htmlUrl' key_expires = ${expiresIn} from jsonb_array_elements(${signedUrls}::jsonb) as 'sU' where ${sC} = 'sU' ->> 'key'`;
     }
 
     const viewIds = shotsData.map((s) => s.id);
@@ -625,38 +634,41 @@ export async function getVisitorShots(shotSet) {
     //is using let in destructure like this ok, since I reassign to id or will eslint throw on vercel deploy?
     const { id, next: n } = shotSet;
 
-    const saferSite = await safeSite(process.env.VSITE, "noDots");
+    const saferSite = safeSite(process.env.VSITE, "noDots");
     const vShot = db(`${saferSite}_shot_key`);
     const vHtml = db(`${saferSite}_html_key`);
     const vtb = db(process.env.VTB);
 
     //where clause construction: get next/prev shotsData when id, else retrieve the 20 most recent rows (initial fetch);
     const clause = db`${id ? db`and id ${n ? db`>` : db`<`} ${id} order by id asc` : db`order by id desc`}`;
-    const expiresIn = new Date(Date.now() + 3600 * 24 * 7);
 
     let shotsData =
-      await db`select id, ${vShot} as "shotKey", shot_url as "shotUrl", ${vHtml} as "htmlKey", date, viewed, key_expires as expires from "public".${vtb} where ${vHtml} is not null ${clause} limit 20 `;
+      await db`select id, ${vShot} as "shotKey", shot_url as "shotUrl", ${vHtml} as "htmlKey", html_url as "htmlUrl", date, viewed, key_expires as expires from "public".${vtb} where ${vHtml} is not null ${clause} limit 20 `;
 
     if (!shotsData[0]) throw { error: "Visitor table returned no rows!" };
     if (!id) shotsData.reverse(); //reverse desc order to asc (on init fetch); I reckon the original array is mutated?
 
-    const expUrlKeys = shotsData
+    //fill expUrlKeys with keys whose 'expired' column is dated beyond last 7 days;
+    const keys = shotsData
       .filter((s) => new Date(s.expires) < new Date())
-      .map((s) => s.shotKey);
+      .map((s) => ({ shotKey: s.shotKey, htmlKey: s.htmlKey }));
 
     //If one or more signed urls have expired
     if (expUrlKeys.length) {
-      const { keysData, error } = await getSignedUrls(expUrlKeys);
-      if (error) throw { error: "Error getting new signed urls!" };
+      const expiresIn = new Date(Date.now() + 3600 * 24 * 7);
+
+      const { error, signedUrls } = await getSignedUrls(keys);
+      if (error || !signedUrls?.length)
+        throw { error: error || "Could not get new signed urls!" };
 
       //update table with new signedUrls;
       const r4 =
-        await db`update ${vtb} set "shotUrl" = kd ->> 'url', key_expires = ${expiresIn} from jsonb_array_elements(${keysData}::jsonb) as kd where ${vShot} = kd ->> 'key' }`;
+        await db`update ${vtb} set shot_url = 'sU' ->> 'shotUrl', html_url = 'sU'->> 'htmlUrl', key_expires = ${expiresIn} from jsonb_array_elements(${signedUrls}::jsonb) as 'sU' where ${vShot} = 'sU' ->> 'shotKey'`;
 
       //normalize new signed urls to shotsData array;
       shotsData = shotsData.map((shot) => {
-        const url = keysData.find((kD) => kD.key == shot.shotKey);
-        return { ...shot, ...(url ? { shotUrl: url } : {}) };
+        const sU = signedUrls.find((sU) => sU.shotKey == shot.shotKey);
+        return { ...shot, ...(sU ? sU : {}) };
       });
     }
 
@@ -674,21 +686,20 @@ export async function getVisitorShots(shotSet) {
 }
 
 //create separate getHtml() function.
-//return shotKey and htmlKey in getShots
-
+//Unneeded -- Blobable shotUrls exist in shotData.
 /**
  * @param {{site?: string, user?: string, downloadProps: downloadProps}}
  * @returns {Promise<{error?: string, dShotData: Omit<shotData, "viewed">[]}>}
  */
 export async function getDownloadShotKeys({ site, user, downloadProps }) {
-  //can pass timePeriod, or cursor, else  ;
-  //does not limit results but that is unnecessary for low cost retrieval
+  //can pass timePeriod, cursor, viewed, else all; Or combos
+  //does not limit results but that is unnecessary for low cost strings tx
 
   try {
     const u = user && site ? true : false; //check user is logged and has scheduled a shot
     const { timePeriod, cursor, unviewed } = downloadProps;
 
-    //check timeperiod is present
+    //check timeperiod is present else !t1
     const t1 = isDate(timePeriod?.from) ? timePeriod.from : null;
     const t2 = isDate(timePeriod?.to) ? timePeriod.to : new Date();
 
@@ -701,13 +712,13 @@ export async function getDownloadShotKeys({ site, user, downloadProps }) {
     if (unviewed) clause = db`${clause} and viewed = false`;
     if (t1) clause = db`${clause} and date > ${t1} and date < ${t2}`;
 
-    const saferSite = await safeSite(u ? site : process.env.VSITE, "noDots");
+    const saferSite = safeSite(u ? site : process.env.VSITE, "noDots");
     const html_col = db(saferSite + "_html_key");
     const shot_col = db(saferSite + "_shot_key");
     const tb = db(u ? user : process.env.VTB);
 
     const dShotData =
-      await db`select id, ${shot_col} as "shotKey", ${html_col} as "htmlKey", date from public.${tb} where ${html_col} is not null ${clause}`; //send a cursor of last id if using limit
+      await db`select id, ${shot_col} as "shotKey", shot_url as "shotUrl", html_url as "htmlUrl", ${html_col} as "htmlKey", date from public.${tb} where ${html_col} is not null ${clause}`; //send a cursor of last id if using limit
     if (!dShotData[0]) throw { error: "No rows in user's table!" };
 
     return {
@@ -721,67 +732,84 @@ export async function getDownloadShotKeys({ site, user, downloadProps }) {
   }
 }
 
+/**
+ * @param {{htmlKey: string, shotKey: string}[]} keys
+ * @returns {Promise<{error?: string, signedUrls?: {shotUrl:string, shotKey:string, htmlUrl: string}[]}>}
+ */
 async function getSignedUrls(keys) {
-  //makes single call to worker with key[] (prefered over 1 call per url implementation -- economizes invocation).
-  //keys: string[]; keysData: {url, key}[];
+  //Gets html and shot presignedUrls from Worker; res.json(): {htmlUrl, shotUrl, shotKey}[];
+
   try {
     if (!keys.length) throw { error: "keys (shotKeys) array is empty!" };
 
-    const shooterAPI = process.env.SHOOTER_URL + "?getShotUrls=true";
+    const shooterAPI = process.env.WEBWORKER_URL + "?getUrls=true";
     const Authorization = await createJWT();
     const headers = { Authorization, "Content-Type": "application/json" };
-    const options = { headers, method: "POST", body: JSON.stringify({ keys }) };
+    const options = {
+      headers,
+      method: "POST",
+      body: JSON.stringify({ htmlKeys, shotKeys }),
+    };
 
     const res = await fetch(shooterAPI, options);
-    if (!res.ok)
-      throw { error: "Error getting signedURLs: " + (await res.json().error) };
 
-    return { keysData: await res.json().keysData };
+    if (!res.ok)
+      throw (
+        (await res?.json()?.error) || (await res?.json()) || (await res?.text())
+      );
+
+    return { signedUrls: await res.json() };
   } catch (e) {
     console.error("Error in getSignedUrl: ", e);
-    return { error: "Error in getSignedUrl: " + e.error || "" };
+    return { error: "Error getting getSignedUrls: " + e || "" };
   }
 }
 
-/**
- * @returns {Promise<{shotBin: Uint8Array, error: string}>}
- */
-export async function getDownloadShot(key) {
-  try {
-    //Call in a loop -- Refrieves one shot per call (to fit vercel 4.5mb payload cap)
-    if (!key.trim()) throw { error: "Missing shotkeys!" };
+//Deprecated -- shots fetched directly from presignedUrl;
+// /**
+//  * @returns {Promise<{shotBlob: Blob, error: string}>}
+//  */
+// export async function getDownloadShot(key) {
+//   try {
+//     //Call in a loop -- Refrieves one shot per call (to fit vercel 4.5mb payload cap)
+//     if (!key.trim()) throw { error: "Missing shotkeys!" };
 
-    const shooterAPI = `${process.env.SHOOTER_URL}?getShot=true`;
-    const Authorization = await createJWT();
-    const headers = { Authorization, "Content-Type": "application/json" };
-    const options = { headers, method: "POST", body: JSON.stringify({ key }) };
+//     const shooterAPI = `${process.env.WEBWORKER_URL}?getShot=true`;
+//     const Authorization = await createJWT();
+//     const headers = { Authorization, "Content-Type": "application/json" };
+//     const options = { headers, method: "POST", body: JSON.stringify({ key }) };
 
-    const shot = await fetch(shooterAPI, options);
+//     const shot = await fetch(shooterAPI, options);
 
-    if (!shot.ok) throw { error: "Could not get shot binary for " + key };
-    return { shotBin: (await shot.json()).shotBin };
-  } catch (e) {
-    console.error("Error in getDownloadShot", e);
-    return { error: "Error in getDownloadShot: " + e.error };
-  }
-}
+//     if (!shot.ok) throw { error: "Could not get shot binary for " + key };
 
-export async function getHtml(key) {
-  try {
-    const shooterAPI = `${process.env.SHOOTER_URL}?getHtml=true`;
-    const Authorization = await createJWT();
-    const headers = { Authorization, "Content-Type": "application/json" };
-    const options = { headers, method: "POST", body: JSON.stringify({ key }) };
+//     const shotBlob = await shot.blob();
 
-    const html = await fetch(shooterAPI, options);
+//     return { shotBlob };
+//   } catch (e) {
+//     console.error("Error in getDownloadShot", e);
+//     return { error: "Error in getDownloadShot: " + e.error };
+//   }
+// }
 
-    if (!html.ok) throw { error: "Could not get html for " + key };
-    return { html: (await html.json()).html };
-  } catch (e) {
-    console.log(e);
-    return { error: "Error in getHtml: " + e.error };
-  }
-}
+//Deprecated: Can download from presignedURL;
+// export async function getHtml(key) {
+//   try {
+//     const shooterAPI = `${process.env.WEBWORKER_URL}?getHtml=true`;
+//     const Authorization = await createJWT();
+//     const headers = { Authorization, "Content-Type": "application/json" };
+//     const options = { headers, method: "POST", body: JSON.stringify({ key }) };
+
+//     const html = await fetch(shooterAPI, options);
+
+//     if (!html.ok) throw { error: "Could not get html for " + key };
+
+//     return { html: await html.blob() };
+//   } catch (e) {
+//     console.log(e);
+//     return { error: "Error in getHtml: " + e.error };
+//   }
+// }
 
 export async function deleteShot({ ids, user, site }) {
   //can send an array of shot IDs
@@ -790,8 +818,8 @@ export async function deleteShot({ ids, user, site }) {
 
     !Array.isArray(ids) && (ids = [ids]);
     const u = db(user);
-    const htmlCol = db(await safeSite(site, "_html_key"));
-    const shotCol = db(await safeSite(site, "_shot_key"));
+    const htmlCol = db(safeSite(site, "_html_key"));
+    const shotCol = db(safeSite(site, "_shot_key"));
 
     const r1 =
       await db`delete from "public".${u} where id = any(${ids}) returning ${shotCol}`; //does this return a list of dynamically generated shotCol columns?
@@ -816,7 +844,7 @@ export async function setShotViewed({ site, ids, user }) {
     if (!user || !site || !ids) throw { error: "Missing parameters" };
 
     !Array.isArray(ids) && (ids = [ids]);
-    const sS = await safeSite(site);
+    const sS = safeSite(site);
 
     const u = db(user);
     await db`update "private".${u} set viewed = true where site = ${site} and id = any(${ids})`;

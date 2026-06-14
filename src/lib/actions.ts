@@ -22,8 +22,6 @@ import {
   deleteShot,
   getDownloadShotKeys,
   getCrons,
-  getDownloadShot,
-  getHtml,
   getActiveSites,
 } from "./server";
 import { delAccountRate, logRate, sessionRate } from "./redis.js";
@@ -307,7 +305,7 @@ export async function getSites() {
 
 export async function getShots(prop: shotProp) {
   //handle displaying new shots coming in when you're scrolling through previous shots
-  //thrown errors handled by reactQuery as reactQuery.error
+  //throws handled by reactQuery as reactQuery.error
 
   const { user, error: e1 } = await validateSession();
   if (e1) console.error({ error: e1 });
@@ -324,20 +322,22 @@ export async function getShots(prop: shotProp) {
   }
 }
 
-export async function getR2Shot(shotKey: string) {
-  // gets the stored binary from R2 one shot at a time (to fit vercel 4mb serverless function limit).
-  //can always retrieve shotKeys by ID or keys; Then filter that against shots stored in useQuery -- then retrieve only unhad
+//Deprecated: Can fetch directly from presignedURL;
+// export async function getR2Shot(shotKey: string) {
+//   // gets the stored binary from R2 one shot at a time (to fit vercel 4mb serverless function limit).
+//   //can always retrieve shotKeys by ID or keys; Then filter that against shots stored in useQuery -- then retrieve only unhad
 
-  const { shotBin, error } = await getDownloadShot(shotKey);
-  return { shotBin, error };
-}
+//   const { shotBlob, error } = await getDownloadShot(shotKey);
+//   return { shotBlob, error };
+// }
 
-export async function getR2Html(htmlKey: string) {
-  const { html, error } = await getHtml(htmlKey);
-  return { html, error };
-}
+// export async function getR2Html(htmlKey: string) {
+//   const { html, error } = await getHtml(htmlKey);
+//   return { html, error };
+// }
 
 //gets the shotKeys for downloads,
+
 export async function getDbShotKeys({
   timePeriod, // date {from, to}
   cursor, // {id, next}

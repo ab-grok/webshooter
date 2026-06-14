@@ -3,8 +3,6 @@
 
 import {
   useMutateDel,
-  useMutateHtml,
-  useMutateShotBinary,
   useMutateViewed,
   useQueryShots,
 } from "@/app/(main)/reactquery";
@@ -13,7 +11,7 @@ import {
   cursor,
   delShotType,
   file,
-  getDownloadCache,
+  getUrlBlob,
   handleDownload,
   optimisticUnvieweds,
   queryData,
@@ -110,8 +108,6 @@ function Shots({
 
   //hooks
   const { download, openInNewTab } = useDownloader(); //custom downloader
-  const { shotBinary, getShotBinary } = useMutateShotBinary(site);
-  const { html, getHtml } = useMutateHtml(site);
   const { shotsLoading, shotsError, shots, ...r } = useQueryShots(site);
   const { shotsRefetch, shotsRefetching, fetchNextShots, fetchPrevShots } = r;
   const { mutateDelErr, mutateDel, delReset, mutatingDel } = useMutateDel(site); //setShots deleting
@@ -140,7 +136,7 @@ function Shots({
         if (!shots) throw "Shots haven't loaded. Will refetch in next Minute";
 
         const noMoreNext = shots?.pages?.at(-1)?.noMoreNext;
-        if (!noMoreNext) throw "User is behind on stored shots";
+        if (!noMoreNext) throw "Still some shots in DB";
         const { error } = await fetchNextShots();
         if (error) throw error;
 
@@ -149,14 +145,15 @@ function Shots({
         console.log("in Shots.tsx: auto fetch ran fetch on: ", time);
       } catch (e) {
         setNewShots(0);
-        console.error("Tried fetching new shots: ", e);
+        const err = "Tried fetching new shots: " + e;
+        console.error(err);
       }
     }, 1000 * 60);
 
     return () => {
       clearInterval(timerRef.current!); //does this work?
     };
-  }, []);
+  }, [shots]);
 
   //tracks ctrl + R for refresh
   useEffect(() => {
@@ -272,45 +269,44 @@ function Shots({
 
   //downloadSelectedShots fn in Gallery
 
-  //downloadCache helper, returns the shotBinary or Html in file format
-  const getDownloadCache = useCallback(
-    //can I pass this fn as a prop and it calls  useQueryClient() the same way? or perhaps aspects about queryClient go stale?
-    async ({ key, date, isHtml }: getDownloadCache) => {
-      if (!key || !date) return;
-      const queryClient = useQueryClient();
-      let cache: any;
-      if (!isHtml) cache = queryClient.getQueryData([site, "downloadShots"])!;
-      if (isHtml) cache = queryClient.getQueryData([site, "html"]);
+  //fetches binary from presignedURL and returns blob in fileData
+  const getUrlBlob = useCallback(
+    async ({ url, key, date, isHtml }: getUrlBlob) => {
+      if (!url || !key || !date) return;
+      // const queryClient = useQueryClient();
+      // let cache: any;
+      // if (!isHtml) cache = queryClient.getQueryData([site, "downloadShots"])!;
+      // if (isHtml) cache = queryClient.getQueryData([site, "html"]);
+
+      const res = await fetch(url);
+      if (!res?.ok)
+        throw { message: "Problem fetching Binary from PresignedURL" };
 
       //format 'isShot/user/site_date_time' to 'site date time';
       const fileName = key.split("/").slice(2).join().replace(/_/g, " ");
-      const fileType = isHtml ? "text/html" : "image/png";
-      let fileData = cache?.[key];
+      const fileData = isHtml ? await res.text() : await res.blob();
+      const fileType = isHtml ? "text/html" : "image/jpeg";
 
-      // is image
-      if (!fileData && !isHtml)
-        fileData = (await getShotBinary({ shotKey: key })).shotBin;
-      // is text
-      if (!fileData && isHtml)
-        fileData = (await getHtml({ htmlKey: key })).html;
+      if (!fileData) throw { message: "Invalid Binary from presignedURL!" };
 
-      if (!fileData) throw { message: "FileData not in cache or R2 storage" };
-      else return { fileName, fileType, fileData, date };
+      return { fileName, fileType, fileData, date };
     },
     [],
   );
 
   //localUnviewedShots helper: gets the unviewed keys from loaded shots
-  const getLocaluvShotKeys = useCallback(
+  const getLocalUVShotKeys = useCallback(
     ({ id, next }: cursor) => {
       if (!siteShots) return;
       const uvShotKeys0 = siteShots?.filter((s) => !s.viewed)!;
       const uvShotKeys1 = uvShotKeys0.filter((u) =>
         next ? u.id > id - 1 : u.id < id + 1,
-      ); //+,- for including the current shot;
+      ); //+,- includes the current shot to the array;
+
       const uvShotData = uvShotKeys1.map((u) => ({
         key: u.shotKey,
         date: u.date,
+        sUrl: u.shotUrl,
       }));
 
       return { uvShotData };
@@ -325,15 +321,15 @@ function Shots({
       //rateLimit?
       try {
         //Normalise id: if not passed, get from selectedShots
-        id = id ? id - 1 : selectedShots.at(0)?.id! - 1; // 2ill throw if id undefined
+        id = id ? id - 1 : selectedShots?.at(0)?.id! - 1; // will throw if id undefined;
 
         if (local) {
           //get local unvieweds
-          const uvShotData = getLocaluvShotKeys({ id, next: true })?.uvShotData; //this returns {key, date}
-          if (!uvShotData) return;
+          const uvShotData = getLocalUVShotKeys({ id, next: true })?.uvShotData;
+          if (!uvShotData?.length) return;
 
-          const uvPromise = uvShotData.map((u) =>
-            getDownloadCache({ key: u.key, date: u.date }),
+          const uvPromise = uvShotData.map(async (u) =>
+            getUrlBlob({ url: u.sUrl, key: u.key, date: u.date }),
           );
 
           const uvShots = await filterPromise(uvPromise);
@@ -348,7 +344,7 @@ function Shots({
           if (e2) throw e2;
 
           const uvPromise = dShotData.map((d) =>
-            getDownloadCache({ key: d.shotKey, date: d.date }),
+            getUrlBlob({ url: d.shotUrl, key: d.shotKey, date: d.date }),
           );
 
           const uvShots = await filterPromise(uvPromise);
@@ -368,25 +364,26 @@ function Shots({
     async ({ id, local }: handleDownload) => {
       try {
         //Normalise id: passed from context menu (right clicked) or derived from selected shot;
-        id = id ? id + 1 : selectedShots.at(-1)?.id! + 1; //will throw if undefined!
+        id = id ? id + 1 : selectedShots?.at(-1)?.id! + 1; //will throw if undefined!
 
         if (local) {
-          const uSD = getLocaluvShotKeys({ id, next: false })?.uvShotData;
+          const uSD = getLocalUVShotKeys({ id, next: false })?.uvShotData;
           if (!uSD) throw "No local unviewed shots!";
 
           const uvPromise = uSD.map((u) =>
-            getDownloadCache({ key: u.key, date: u.date }),
+            getUrlBlob({ url: u.sUrl, key: u.key, date: u.date }),
           );
+
           const uvShots = await filterPromise(uvPromise);
           const { error: e1 } = await download(uvShots as file[]);
           if (e1) throw e1;
         } else {
           const uvProp = { site, cursor: { id, next: false }, unviewed: true };
           const { error: e2, dShotData: dSD } = await getDbShotKeys(uvProp);
-          if (e2) throw e2;
+          if (e2 || !dSD) throw e2 || "No dShotData from getDbShotKeys";
 
           const uvPromise = dSD.map((d) =>
-            getDownloadCache({ key: d.shotKey, date: d.date }),
+            getUrlBlob({ url: d.shotUrl, key: d.shotKey, date: d.date }),
           );
 
           const uvShots = await filterPromise(uvPromise);
@@ -412,7 +409,7 @@ function Shots({
         if (e1) throw e1;
 
         const tPromises = dSD.map((d) =>
-          getDownloadCache({ key: d.shotKey, date: d.date }),
+          getUrlBlob({ url: d.shotUrl, key: d.shotKey, date: d.date }),
         );
         const tShots = await filterPromise(tPromises);
         const { error } = await download(tShots as file[]);
@@ -428,13 +425,13 @@ function Shots({
     async ({ id, local }: handleDownload) => {
       //id: defined when passed from Context Menu;
       try {
-        id = id ? id - 1 : selectedShots.at(0)?.id! - 1; //will throw if undefined
+        id = id ? id - 1 : selectedShots?.at(0)?.id! - 1; //will throw if undefined
 
         //get shotKeys from localShots and then binary data
         if (local) {
-          const cSD = siteShots?.filter((s) => s.id > id!)!;
-          const cPromise = cSD.map((c) =>
-            getDownloadCache({ key: c.shotKey, date: c.date }),
+          const sSD = siteShots?.filter((s) => s.id > id!)!;
+          const cPromise = sSD.map((s) =>
+            getUrlBlob({ url: s.shotUrl, key: s.shotKey, date: s.date }),
           );
           const cShots = await filterPromise(cPromise);
           const { error: e1 } = await download(cShots as file[]);
@@ -445,8 +442,8 @@ function Shots({
           const { error: e2, dShotData } = await getDbShotKeys(cProp);
           if (e2) throw e2;
 
-          const cPromise = dShotData.map((c) =>
-            getDownloadCache({ key: c.shotKey, date: c.date }),
+          const cPromise = dShotData.map((s) =>
+            getUrlBlob({ url: s.shotUrl, key: s.shotKey, date: s.date }),
           );
           const cShots = await filterPromise(cPromise);
           const { error: e3 } = await download(cShots as file[]);
@@ -462,13 +459,13 @@ function Shots({
   const handleDownloadCurrentShotAndBefore = useCallback(
     async ({ id, local }: handleDownload) => {
       try {
-        id = id ? id + 1 : selectedShots.at(0)?.id! + 1; //will throw if undefined
+        id = id ? id + 1 : selectedShots?.at(0)?.id! + 1; //will throw if undefined
 
         //get shotKeys from loadedShots and then binary, else dbShots then binary.
         if (local) {
-          const cSD = siteShots?.filter((s) => s.id < id!)!;
-          const cPromise = cSD.map((c) =>
-            getDownloadCache({ key: c.shotKey, date: c.date }),
+          const sSD = siteShots?.filter((s) => s.id < id!)!;
+          const cPromise = sSD.map((c) =>
+            getUrlBlob({ url: c.shotUrl, key: c.shotKey, date: c.date }),
           );
           const cShots = await filterPromise(cPromise);
           const { error: e1 } = await download(cShots as file[]);
@@ -479,7 +476,7 @@ function Shots({
           if (e2) throw e2;
 
           const cPromise = dShotData.map((c) =>
-            getDownloadCache({ key: c.shotKey, date: c.date }),
+            getUrlBlob({ url: c.shotUrl, key: c.shotKey, date: c.date }),
           );
           const cShots = await filterPromise(cPromise);
           const { error: e3 } = await download(cShots as file[]);
@@ -576,7 +573,7 @@ function Shots({
               <SelectedViewer
                 shot={openedShot}
                 onClose={() => setOpenedShot(undefined)}
-                getDownloadCache={getDownloadCache}
+                getUrlBlob={getUrlBlob}
                 onDelete={handleDeleteShot}
               />
             </motion.div>
@@ -602,7 +599,7 @@ function Shots({
             viewSelectedShots={viewSelectedShots}
             selectedShots={selectedShots}
             onSelectedShots={onSelectedShots}
-            getDownloadCache={getDownloadCache}
+            getUrlBlob={getUrlBlob}
           />
         </motion.div>
       </motion.div>
@@ -638,13 +635,13 @@ function Shots({
             viewSelectedShots={viewSelectedShots}
             selectedShots={selectedShots}
             onSelectedShots={onSelectedShots}
-            getDownloadCache={getDownloadCache}
+            getUrlBlob={getUrlBlob}
           />
         </motion.div>
 
         {/* Selected Viewer - Right Column */}
         <AnimatePresence>
-          {openedShot && (
+          {(true || openedShot) && (
             <motion.div
               id="SelectedViewer Container"
               initial={{ opacity: 0, x: 20 }}
@@ -657,7 +654,7 @@ function Shots({
               <SelectedViewer
                 shot={openedShot}
                 onClose={() => setOpenedShot(undefined)}
-                getDownloadCache={getDownloadCache}
+                getUrlBlob={getUrlBlob}
                 onDelete={handleDeleteShot}
               />
             </motion.div>
