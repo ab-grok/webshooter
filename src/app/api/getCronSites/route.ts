@@ -16,9 +16,10 @@ export async function GET(req: Request) {
     if (e) throw { error: e };
 
     return NextResponse.json({ readySites, id });
-  } catch (e) {
+  } catch (e: any) {
     console.error("Error in api: ", e);
-    const msg = `Could not get readySites. ${JSON.stringify(e)}`;
+
+    const msg = `Could not get readySites. ${JSON.stringify(e?.error || e?.message || e)}`;
     const msgData = { msg, danger: true };
     await setNotification({ msgData, logError: true });
     return NextResponse.json({ error: "An error occured" }, { status: 401 });
