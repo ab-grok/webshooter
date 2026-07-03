@@ -90,9 +90,9 @@ NODE_ENV=development
 ## Database & schema notes
 
 - **User tables**: Per-user tables are created/altered dynamically by `updateShotSchema` and have columns `id` serial (auto-increment), `date`, `viewed`, `key_expires`, `shot_url`, `html_url`, `{site}_shot_key`, `{site}_html_key`.
-- **Metadata**: App-level metadata stored in `private.*` tables: `private.settings`, `private.crons`, `private.users`, `private.usermeta`.
-
----
+- **User Data**: App user data stored in `private.users` with columns `id`, `uuid`, `password`, `username`, `sites`, `notifications`, `notepad`, `maxCrons`, `deletionAttempt`, `created`, `storeDuration`, `isAdmin`.
+- **User Metadata**: User metadata stored in `private.usermeta` with columns `id`, `username`, `total_sites`, `total_shots`, `deleted_on`, `joined_on`.
+- **App Metadata**: App-level metadata stored in `private.settings`, `private.crons`,
 
 ## Architecture & data flow
 

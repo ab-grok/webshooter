@@ -270,7 +270,7 @@ export function useUserData() {
     queryFn: async () => {
       const { error, ...rest } = await getUserData();
       if (error) throw error;
-      return rest;
+      return rest as userData;
     },
     staleTime: Infinity,
   });

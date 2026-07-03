@@ -18,10 +18,12 @@ export type cursor = { id: number; next?: boolean };
 
 export type timePeriod = { from: Date; to?: Date };
 
+export type isAdmin = null | "Bronze" | "Silver" | "Gold";
+
 export type userData = {
   user?: string;
   joined?: string;
-  isAdmin?: number;
+  isAdmin?: isAdmin;
   maxCrons?: number | undefined;
   activeSites?: shotData[] | undefined;
   userSites?: shotData[] | undefined;

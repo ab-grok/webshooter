@@ -30,7 +30,7 @@ import {
   encodeHexLowerCase,
 } from "@oslojs/encoding";
 import { sha256 } from "@oslojs/crypto/sha2";
-import { downloadProps, range } from "./types";
+import { downloadProps, range, userData } from "./types";
 import * as jose from "jose";
 import { safeCron, safeRange, safeSite } from "./utils";
 
@@ -127,7 +127,7 @@ export async function signUser({ username, password, siteData }: signUser) {
   return { error: null };
 }
 
-export async function getUserData() {
+export async function getUserData(): Promise<userData & { error?: string }> {
   // here I'll collect all the info needed to display in frontend for an active session
   // notifications: InfiniteQuery; notepad, will have own functions.
   const { user, joined, isAdmin } = await validateSession();

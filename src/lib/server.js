@@ -6,7 +6,7 @@
 import bcrypt from "bcryptjs";
 import postgres, { Sql } from "postgres";
 import { v4 } from "uuid";
-import { unviewedType, shotData, downloadProps } from "./types";
+import { unviewedType, shotData, downloadProps, isAdmin } from "./types";
 import { createCookie, createJWT, getToken } from "./actions";
 import { formatDate, isDate } from "./dateformatter";
 import { safeSite } from "./utils";
@@ -998,7 +998,8 @@ export async function deleteUser(user, delPass) {
     if (delPass || delReady) {
       //Store usage data on user deletion
       const c = await db`select count(*) from public.${db(user)}`;
-      await db`insert into private."deletedUsers" (username, "shotsTaken") values (${user}, ${c?.[0]?.count || 0})`;
+      await db`update private.usermeta m set joined_on = u.created, deleted_on = now(), total_shots = total_shots + ${c?.[0]?.count || 0} from (select * from private.users where username = ${user}) as u where m.username = ${user}`;
+
       await db`delete from private.users where username = ${user}`;
       await db`drop table public.${db(user)}`;
       return { deletionDue, deleted: true };
@@ -1024,7 +1025,7 @@ export async function cancelDeleteUser(user) {
 
 /**
  * @param {*} param0
- * @typedef {{site:string, cron:string, range:{start:string, end:string}}} userSite
+ * @typedef {{site:string, cron:string, range:{start:number, end:number}, active: boolean}} userSite
  * @returns {Promise<{tableName?: string, userSites?: userSite[], maxCrons?: number, error?: string}>}
  */
 export async function getUserSites({ user }) {
@@ -1039,8 +1040,11 @@ export async function getUserSites({ user }) {
     const r2 =
       await db`select sites, "maxCrons" from private.users where username = ${user}`;
 
-    const siteData = { tableName: r1?.[0]?.t, userSites: r2?.[0]?.sites };
-    return { ...siteData, maxCrons: r2?.[0]?.maxCrons };
+    if (!r1?.[0]?.t) throw { error: "Could not get user table!" };
+    if (!r2?.[0]?.sites) throw { error: "User has no sites!" };
+
+    const siteData = { tableName: r1[0].t, userSites: r2[0].sites };
+    return { ...siteData, maxCrons: r2[0].maxCrons };
   } catch (e) {
     console.error(`Error in getUserSites: `, e);
     return { error: `Error in getUserSites: ${e.error}` };
@@ -1162,7 +1166,7 @@ export async function createSession(password, username, expires) {
 
 /**
  * @param {{token: string, expires?: Date }} args
- * @returns {Promise<{ user: string, uid: string, joined: string, error?: string, isAdmin: number }>}
+ * @returns {Promise<{ user: string, uid: string, joined: string, error?: string, isAdmin: isAdmin }>}
  */
 export async function getSession({ token, expires }) {
   //scrap isAdmin -- will need to do db check before retrieving sensitive info, so must get admin status in function -- same thing -- I can get from validateSession in said function.
@@ -1174,9 +1178,9 @@ export async function getSession({ token, expires }) {
 
     if (!expires) {
       r =
-        await db`select u.username as user, u.uuid, expires, u.created as joined from private.sessions s inner join private.users u on s.uuid = u.uuid where s."sessionId" = ${token}`;
+        await db`select u.username as user, u.uuid, u."isAdmin", u.created as joined, expires from private.sessions s inner join private.users u on s.uuid = u.uuid where s."sessionId" = ${token}`;
 
-      if (!r[0]) throw { error: "Unknown user" };
+      if (!r?.[0]) throw { error: "Unknown user" };
       if (new Date() > new Date(r[0].expires))
         throw { error: "Session expired!" };
 
@@ -1185,8 +1189,12 @@ export async function getSession({ token, expires }) {
       await db`update private.sessions set "lastLog" = now(), expires = ${expires} where "sessionId" = ${token}`;
     }
 
-    const r1 = { joined: r?.[0]?.joined, isAdmin: r?.[0]?.isAdmin };
-    return { user: r?.[0]?.user, uid: r?.[0]?.uuid, ...r1 };
+    const A = r[0].isAdmin;
+    const isAdmin =
+      A == 1 ? "Bronze" : A == 2 ? "Silver" : A == 3 ? "Gold" : null;
+
+    const r1 = { joined: r[0].joined, isAdmin };
+    return { user: r[0].user, uid: r[0].uuid, ...r1 };
   } catch (e) {
     console.error("Error in validateSession: ", e);
     return { error: "Trouble validating user! " + e.error || "" };
