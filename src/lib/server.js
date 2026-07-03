@@ -47,7 +47,7 @@ export async function makeEntry({ shotData }) {
     // const updHtml = prevId ? prevId : html;
 
     const r1 =
-      await db`insert into "public".${u} (${shotCol}, ${htmlCol}) values (${shotKey}, ${htmlKey}) returning id`;
+      await db`insert into public.${u} (${shotCol}, ${htmlCol}) values (${shotKey}, ${htmlKey}) returning id`;
 
     if (!r1[0].id) throw { error: "in makeEntry. insert failed!" };
 
@@ -82,7 +82,7 @@ async function entryExists({ htmlData, user }) {
     const u = db(user);
 
     const r1 =
-      await db`select id from "public".${u} where date > now() - 1 day and html like ${partHtml} order by date desc limit 1`;
+      await db`select id from public.${u} where date > now() - 1 day and html like ${partHtml} order by date desc limit 1`;
 
     if (r1[0].id) return r1[0].id;
 
@@ -99,7 +99,7 @@ export async function delPrevEntry({ cron, site, user }) {
     if (!user || !cron || !site) throw { error: "Missing params." };
 
     const r1 =
-      await db`select "storeDuration" from "private"."users" where username = ${user}`;
+      await db`select "storeDuration" from private.users where username = ${user}`;
     const sD = r1?.[0]?.storeDuration || 7;
 
     // const storeLimit = new Date();
@@ -111,18 +111,16 @@ export async function delPrevEntry({ cron, site, user }) {
 
     //Q: I assume r2 returns rows of all deleted keys?
     const r2 =
-      await db`delete from "public".${u} where ${shotCol} is not null and date < now() - ${sD} days returning ${shotCol} as "shotKey"`;
+      await db`delete from public.${u} where ${shotCol} is not null and date < now() - ${sD} days returning ${shotCol} as "shotKey", count(*)`;
 
-    //cron schedule may extend past 7days
     if (!r2.length) throw { error: "In delPrevEntry: rows failed to delete!" };
 
-    if (r2.length) {
-      //Q: does this accurately map the shotKey column?
-      const shotKeys = r2.map((shotData) => shotData?.shotKey);
+    await db`update private.usermeta set total_shots = `;
+    //Q: does this accurately map the shotKey column?
+    const shotKeys = r2.map((shotData) => shotData?.shotKey);
 
-      const { error } = await deleteR2Shot(shotKeys);
-      if (error) console.error("In delPrevEntry: " + error);
-    }
+    const { error } = await deleteR2Shot(shotKeys);
+    if (error) console.error("In delPrevEntry: " + error);
 
     return { error: null };
   } catch (e) {
@@ -141,7 +139,9 @@ async function deleteR2Shot(shotKeysArr) {
     //Can handle objects, strings, arrays --  unnecessary: pass array;
     // let safeShotKeys = shotKeys; const isObj = typeof shotKeys == "object" && !Array.isArray(safeShotKeys); if (isObj) safeShotKeys = Object.values(shotKeys); else if (!Array.isArray(safeShotKeys)) safeShotKeys = [safeShotKeys]; //is string;
 
-    if (!shotKeysArr) throw { error: `Empty shotKeysArr: ${shotKeysArr}` };
+    if (!shotKeysArr?.length)
+      throw { error: `Empty shotKeysArr: ${shotKeysArr}` };
+
     if (!Array.isArray(shotKeysArr)) {
       const error = `shotKeysArr must be an array! shotKeysArr: ${shotKeysArr}`;
       throw { error };
@@ -155,6 +155,7 @@ async function deleteR2Shot(shotKeysArr) {
       body: JSON.stringify({ keys: shotKeysArr }),
     });
 
+    //result can be in json form or text() form -- what does text() do?
     const e =
       (await res?.json()) || (await res?.text()) || "Error deleting shot!";
 
@@ -175,7 +176,7 @@ export async function getCronSites(cron) {
     userInactivePeriod.setMonth(userInactivePeriod.getMonth() - 3);
 
     const r1 =
-      await db`select "cronData" as "cD" from "private"."crons" where cron = ${cron}`;
+      await db`select "cronData" as "cD" from private.crons where cron = ${cron}`;
     const cronsData = r1?.[0]?.cD;
 
     if (!cronsData || (cronsData.length == 1 && !cronsData[0])) {
@@ -185,7 +186,7 @@ export async function getCronSites(cron) {
       setNotification(eLog);
       console.error(msg);
 
-      await db`delete from "private"."crons" where cron = ${cron}`;
+      await db`delete from private.crons where cron = ${cron}`;
 
       const updW = { user: "Cleaner", cron, del: true };
       const { error } = await updateWorker(updW);
@@ -201,15 +202,17 @@ export async function getCronSites(cron) {
       let erred;
 
       const r2 =
-        await db`select s."lastLog" from "private"."users" u inner join "private"."sessions" s on u.uuid = s.uuid where username = ${user} `;
+        await db`select s."lastLog" from private.users u inner join private.sessions s on u.uuid = s.uuid where username = ${user} `;
       const lastLog = r2?.[0]?.lastLog;
 
-      console.log("in getCronSites: ", { user, lastLog });
+      console.log(`in getCronSites; cronsData index: : ${i}`, {
+        user,
+        lastLog,
+      });
 
-      //sets userSites and cron inactive / deleted when inactivity limit is reached;
+      //when user is unloggd past 3 months: set user sites and cron inactive & deleted;
       if (!lastLog || userInactivePeriod > new Date(lastLog)) {
-        const msg =
-          "User inactivity period maxed! User's crons and keys have been cleaned!";
+        const msg = `User unlogged past 3 months! Cron: ${cron} on Site: ${site} and its keys have been purged!`;
         await setNotification({ msgData: { msg, danger: true }, user });
         console.log(msg, lastLog);
 
@@ -241,10 +244,10 @@ export async function getCronSites(cron) {
         }
       }
 
-      //remove previous keys greater than 7 days -- R2 bucket has 10GB storage limit.
+      //When cron exists: remove previous keys greater than 7 days -- can probably go higher since R2 bucket has 10GB storage limit .
       const { error: delPrevErr } = await delPrevEntry({ cron, site, user });
       if (delPrevErr) {
-        //mutate errorLogs to include delPrevErr;
+        //mutate "errorLogs" to include delPrevErr;
         erred = true;
         const thisLog = errLogs.find((e) => e?.user == user) || { user, cron };
         errLogs = [
@@ -263,7 +266,7 @@ export async function getCronSites(cron) {
     const msgData = { msg, danger: true };
     const { id } = await setNotification({ msgData, user });
 
-    //Log all per user error objects.
+    //Erred during loop: Logs error per user.
     errLogs.forEach((e) => {
       const msgData = { msg: JSON.stringify(e), danger: true };
       setNotification({ msgData, logError: true });
@@ -282,6 +285,7 @@ export async function getCronSites(cron) {
 
 export async function updateShotSchema({ site, user, del }) {
   //creates a table for user in root db with default cols. Can also delete siteCols (site)
+  //usermeta = id, username, total_shots, total_sites
   try {
     const saferSite = safeSite(site, "noDots");
     if (!saferSite) throw { error: "Unsafe site: " + site };
@@ -293,16 +297,32 @@ export async function updateShotSchema({ site, user, del }) {
 
     if (!tableName) {
       if (del)
-        await db`create table "public".${u} (id serial primary key, date timestamptz default now())`;
-      else
-        await db`create table "public".${u} (id serial primary key, date timestamptz default now(), viewed boolean default false, key_expires timestamptz default (now() + interval '7 days'), ${shotCol} text, ${htmlCol} text, shot_url text, html_url text)`; //does this work as intended -- I'm careful about 'now()', '7 days'?
+        await db`create table public.${u} (id serial primary key, date timestamptz default now())`;
+      else {
+        await db`create table public.${u} (id serial primary key, date timestamptz default now(), viewed boolean default false, key_expires timestamptz default now(), ${shotCol} text, ${htmlCol} text, shot_url text, html_url text)`; //does this work as intended -- I'm concerned about 'now()', '7 days'?
+        await db`insert into private.usermeta (username, total_sites) values (${user}, 1)`;
+      }
     } else {
-      const alterTb = db`alter table "public".${u}`;
+      const alterTb = db`alter table public.${u}`;
       if (del) {
-        await db`delete from public.${u} where ${htmlCol} is not null`;
+        //deleting site from an existing table
+        const dRows =
+          await db`delete from public.${u} where ${shotCol} is not null returning count(${shotCol})`; //does this return the count of deleted rows?
         await db`${alterTb} drop column ${htmlCol}, drop column ${shotCol}`;
-      } else
-        await db`${alterTb} add column if not exists viewed boolean default false, add column if not exists key_expires timestamptz, add column if not exists ${htmlCol} text, add column if not exists ${shotCol} text, add column if not exists shot_url text, add column if not exists html_url text`;
+
+        const dR = dRows?.[0]?.count;
+        if (dR)
+          await db`update private.usermeta set total_shots = total_shots + ${dR} where username = ${user}`;
+      } else {
+        //Adding site to existing table
+        const sameCol =
+          await db`select column_name from information_schema.columns where table_name = ${u} and schema_name = 'public' and column_name = ${shotCol}`;
+
+        if (!sameCol?.[0]) {
+          await db`${alterTb} add column if not exists viewed boolean default false, add column if not exists key_expires timestamptz default now(), add column ${htmlCol} text, add column ${shotCol} text, add column if not exists shot_url text, add column if not exists html_url text`;
+          await db`update private.usermeta set total_sites = total_sites + 1`;
+        }
+      }
     }
     return { user, saferSite, userSites };
   } catch (e) {
@@ -319,7 +339,7 @@ export async function updateUserSites({ safeSD, user, del, re }) {
     const { cron, site, range } = safeSD;
 
     if (del) {
-      await db`update "private"."users" set sites = array(select s from unnest(sites) as s where s ->> 'site' != ${site} ) where username = ${user}`;
+      await db`update private.users set sites = array(select s from unnest(sites) as s where s ->> 'site' != ${site} ) where username = ${user}`;
       const uSite = JSON.stringify({ site, cron });
       console.log(`in updateUserSites. Removed site: ${uSite}`);
       return { error: null };
@@ -356,7 +376,7 @@ export async function updateUserSites({ safeSD, user, del, re }) {
       ...(canAddSite && (!thisSite || re) ? { active: true } : {}), //only set active:true when it's a new site or reactivating
     };
 
-    await db`update "private"."users" set sites = array( select (case when s->>'site' = ${site} then ${updSite} else s end) from unnest(sites) as s ) where username = ${user}`;
+    await db`update private.users set sites = array( select (case when s->>'site' = ${site} then ${updSite} else s end) from unnest(sites) as s ) where username = ${user}`;
 
     console.log("in updateUserSites. User's siteData has been changed.");
     if (!canAddSite) throw { error: "Max crons reached" };
@@ -378,7 +398,7 @@ export async function updateCronTable({ safeSD, user, del }) {
     const { cron, site, range } = safeSD;
     const cronData = { user, site, ...(range ? { range } : {}) };
 
-    const r1 = await db`select count(cron) from "private"."crons"`;
+    const r1 = await db`select count(cron) from private.crons`;
     const cronCount = r1[0].count; //I reckon count(cron) is accessible as count?;
 
     //check app crons;
@@ -386,18 +406,16 @@ export async function updateCronTable({ safeSD, user, del }) {
       if (del) throw { error: "No crons found to delete!" };
 
       console.log("in updateCronTable. No crons found. Inserting first cron");
-      await db`insert into "private"."crons" (cron, "cronData") values (${cron}, array[${cronData}::jsonb)]`;
+      await db`insert into private.crons (cron, "cronData") values (${cron}, array[${cronData}::jsonb)]`;
 
       return { delWorker: false, updWorker: true };
     }
 
     //app crons > 1; Check for existing cron
-    const r2 =
-      await db`select cron from "private"."crons" where cron = ${cron}`;
+    const r2 = await db`select cron from private.crons where cron = ${cron}`;
     const sameCron = r2[0]?.cron;
 
-    const r3 =
-      await db`select "maxCrons" from "private"."settings" where id = 1`;
+    const r3 = await db`select "maxCrons" from private.settings where id = 1`;
 
     const canAddCron = cronCount < (r3?.[0]?.maxCrons || 5); //for new crons;
 
@@ -407,22 +425,22 @@ export async function updateCronTable({ safeSD, user, del }) {
       //new or reactivating site can't get cron schedule, so must set site inactive
       if (!canAddCron) throw { error: "app maxCrons reached." };
 
-      await db`insert into "private"."crons" (cron, "cronData") values (${cron}, array[${cronData}::jsonb)]`;
+      await db`insert into private.crons (cron, "cronData") values (${cron}, array[${cronData}::jsonb)]`;
       return { updWorker: true };
     } else if (del) {
       //deleting an existing cron
       const r4 =
-        await db`update "private"."crons" set "cronData" = array(select c from unnest("cronData") as c where not (c ->> 'site' = ${site} and c ->> 'user' = ${user})) where cron = ${cron} returning "cronData"`;
+        await db`update private.crons set "cronData" = array(select c from unnest("cronData") as c where not (c ->> 'site' = ${site} and c ->> 'user' = ${user})) where cron = ${cron} returning "cronData"`;
       const r4a = r4?.[0]?.cronData;
 
       if (!r4a?.length || (r4a.length == 1 && !r4a[0])) {
         //no sites in schedule;
-        await db`delete from "private"."crons" where cron = ${cron}`;
+        await db`delete from private.crons where cron = ${cron}`;
         return { delWorker: true };
       }
     } else {
       //sameCron && !del: Check if user's site is in schedule else add.
-      await db`update "private"."crons" set "cronData" = case when exists (select 1 from unnest("cronData") as c where c ->> 'site' = ${site} and c ->> 'user' = ${user}) then "cronData" else array_append( "cronData", ${cronData}::jsonb ) end where cron = ${cron}`;
+      await db`update private.crons set "cronData" = case when exists (select 1 from unnest("cronData") as c where c ->> 'site' = ${site} and c ->> 'user' = ${user}) then "cronData" else array_append( "cronData", ${cronData}::jsonb ) end where cron = ${cron}`;
     }
 
     return { delWorker: false, updWorker: false };
@@ -553,7 +571,7 @@ export async function getUserShots(shotSet) {
     let id = id0;
 
     const r1 =
-      await db`select sites from "private"."users" where username = ${user} `;
+      await db`select sites from private.users where username = ${user} `;
     const sites = r1?.[0]?.sites;
 
     if (!sites.length) throw { error: "User has no sites" };
@@ -573,40 +591,40 @@ export async function getUserShots(shotSet) {
     //When no id is passed (at initial fetch) assign the last stored viewedId to id
     if (!id) {
       const r2 = //jsonb_array_elements(viewedId: column)
-        await db`select v ->> 'viewedId' as "lastViewedId" from "private"."users" cross join lateral jsonb_array_elements("viewedId") as v where username = ${user} and v ->> 'site' = ${sS}`;
+        await db`select v ->> 'viewedId' as "lastViewedId" from private.users cross join lateral jsonb_array_elements("viewedId") as v where username = ${user} and v ->> 'site' = ${sS}`;
       id = r2?.[0]?.lastViewedId || 1;
     }
 
-    //Get user shot data from user's table;
+    //Get user shot data from user's table; where sC is not null filters array off deleted shots
     const clause = db`id ${n || (!n && !id0) ? db`>` : db`<`} ${id}`;
     let shotsData =
-      await db`select id, ${hC} as "htmlKey", ${sC} as "shotKey", shot_url as "shotUrl", html_url as "htmlUrl, date, viewed, key_expires as expires from "public".${u} where ${hC} is not null and ${clause} order by id asc limit 20`;
+      await db`select id, ${hC} as "htmlKey", ${sC} as "shotKey", shot_url as "shotUrl", html_url as "htmlUrl", date, viewed, key_expires as expires from public.${u} where ${sC} is not null and ${clause} order by id asc limit 20`;
 
     if (!shotsData[0]) throw { error: "No rows in user table!" };
 
     //fill expUrlKeys with keys whose 'expired' column is dated beyond last 7 days;
-    const keys = shotsData
-      .filter((s) => new Date(s.expires) < new Date())
+    const expKeys = shotsData
+      .filter((s) => new Date(s?.expires) < new Date())
       .map((s) => ({ shotKey: s.shotKey, htmlKey: s.htmlKey }));
 
-    if (expUrlKeys.length) {
+    if (expKeys?.length) {
       const expiresIn = new Date(Date.now() + 3600 * 24 * 7);
-      const { signedUrls, error } = await getSignedUrls(keys);
+      const { signedUrls, error } = await getSignedUrls(expKeys);
 
       if (error || !signedUrls?.length)
         throw { error: error || "Could not get new signed urls!" };
 
       //normalize shotsData array to include new signedUrls
       shotsData = shotsData.map((shot) => {
-        //if sU then shotUrl has expired, updates;
+        //if sU then new signedUrl for entry, updates;
         const sU = signedUrls.find((sU) => sU.shotKey == shot.shotKey);
         return { ...shot, ...(sU ? sU : {}) };
       });
 
       //Update table with new signedUrls;
       const r4 =
-        //jsonb_array_elem() helps parse signedUrls for sql manipulation; signedUrls cast to jsonb but is jsonb[];
-        await db`update ${u} set "shotUrl" = 'sU' ->> 'shotUrl', html_url = 'sU' ->> 'htmlUrl' key_expires = ${expiresIn} from jsonb_array_elements(${signedUrls}::jsonb) as 'sU' where ${sC} = 'sU' ->> 'key'`;
+        //jsonb_array_elem() helps parse signedUrls for use in sql statement; signedUrls is cast to jsonb but is jsonb[]; Does this work?
+        await db`update ${u} set shot_url = sU ->> 'shotUrl', html_url = sU ->> 'htmlUrl', key_expires = ${expiresIn} from jsonb_array_elements(${signedUrls}::jsonb) as sU where ${sC} = sU ->> 'shotKey'`;
     }
 
     const viewIds = shotsData.map((s) => s.id);
@@ -635,35 +653,36 @@ export async function getVisitorShots(shotSet) {
     const { id, next: n } = shotSet;
 
     const saferSite = safeSite(process.env.VSITE, "noDots");
-    const vShot = db(`${saferSite}_shot_key`);
-    const vHtml = db(`${saferSite}_html_key`);
+    const vShotCol = db(`${saferSite}_shot_key`);
+    const vHtmlCol = db(`${saferSite}_html_key`);
     const vtb = db(process.env.VTB);
 
     //where clause construction: get next/prev shotsData when id, else retrieve the 20 most recent rows (initial fetch);
     const clause = db`${id ? db`and id ${n ? db`>` : db`<`} ${id} order by id asc` : db`order by id desc`}`;
 
+    //where vShotCol is not null filters out deleted shots;
     let shotsData =
-      await db`select id, ${vShot} as "shotKey", shot_url as "shotUrl", ${vHtml} as "htmlKey", html_url as "htmlUrl", date, viewed, key_expires as expires from "public".${vtb} where ${vHtml} is not null ${clause} limit 20 `;
+      await db`select id, ${vShotCol} as "shotKey", shot_url as "shotUrl", ${vHtmlCol} as "htmlKey", html_url as "htmlUrl", date, viewed, key_expires as expires from public.${vtb} where ${vShotCol} is not null ${clause} limit 20 `;
 
     if (!shotsData[0]) throw { error: "Visitor table returned no rows!" };
-    if (!id) shotsData.reverse(); //reverse desc order to asc (on init fetch); I reckon the original array is mutated?
+    if (!id) shotsData.reverse(); //when !id, shotData is fetched reversed in desc order; this normalises it;
 
-    //fill expUrlKeys with keys whose 'expired' column is dated beyond last 7 days;
-    const keys = shotsData
-      .filter((s) => new Date(s.expires) < new Date())
+    //expKeys contains keys whose signed url, 'key_expires' column set to 7 days, has elapsed;
+    const expKeys = shotsData
+      .filter((s) => new Date(s?.expires) < new Date())
       .map((s) => ({ shotKey: s.shotKey, htmlKey: s.htmlKey }));
 
     //If one or more signed urls have expired
-    if (expUrlKeys.length) {
+    if (expKeys?.length) {
       const expiresIn = new Date(Date.now() + 3600 * 24 * 7);
 
-      const { error, signedUrls } = await getSignedUrls(keys);
+      const { error, signedUrls } = await getSignedUrls(expKeys);
       if (error || !signedUrls?.length)
         throw { error: error || "Could not get new signed urls!" };
 
       //update table with new signedUrls;
       const r4 =
-        await db`update ${vtb} set shot_url = 'sU' ->> 'shotUrl', html_url = 'sU'->> 'htmlUrl', key_expires = ${expiresIn} from jsonb_array_elements(${signedUrls}::jsonb) as 'sU' where ${vShot} = 'sU' ->> 'shotKey'`;
+        await db`update ${vtb} set shot_url = sU ->> 'shotUrl', html_url = sU->> 'htmlUrl', key_expires = ${expiresIn} from jsonb_array_elements(${signedUrls}::jsonb) as sU where ${vShotCol} = sU ->> 'shotKey'`;
 
       //normalize new signed urls to shotsData array;
       shotsData = shotsData.map((shot) => {
@@ -672,7 +691,8 @@ export async function getVisitorShots(shotSet) {
       });
     }
 
-    const viewIds = keys.map((s) => s.id);
+    //viewedIds would filter out deelted shots which have key_expires (expires) as null -- but that is redundant since it's filered in shotsData; but answer if s.expires sql null is parsed as JS null as expected? or perhaps its a string 'null' instead -- making the filter innefective.
+    const viewIds = shotsData.filter((s) => s.expires).map((s) => s.id);
     const nextCursor = viewIds.at(-1);
     const prevCursor = viewIds.at(0);
     const noMoreNext = !!next && viewIds.length < 20;
@@ -713,17 +733,15 @@ export async function getDownloadShotKeys({ site, user, downloadProps }) {
     if (t1) clause = db`${clause} and date > ${t1} and date < ${t2}`;
 
     const saferSite = safeSite(u ? site : process.env.VSITE, "noDots");
-    const html_col = db(saferSite + "_html_key");
-    const shot_col = db(saferSite + "_shot_key");
+    const htmlCol = db(saferSite + "_html_key");
+    const shotCol = db(saferSite + "_shot_key");
     const tb = db(u ? user : process.env.VTB);
 
-    const dShotData =
-      await db`select id, ${shot_col} as "shotKey", shot_url as "shotUrl", html_url as "htmlUrl", ${html_col} as "htmlKey", date from public.${tb} where ${html_col} is not null ${clause}`; //send a cursor of last id if using limit
+    let dShotData =
+      await db`select id, ${shotCol} as "shotKey", shot_url as "shotUrl", html_url as "htmlUrl", ${htmlCol} as "htmlKey", date from public.${tb} where ${shotCol} is not null ${clause}`; //send a cursor of last id if using limit
     if (!dShotData[0]) throw { error: "No rows in user's table!" };
 
-    return {
-      dShotData,
-    };
+    return { dShotData };
   } catch (e) {
     console.error("In getDownloadShotKeys: ", e);
     return {
@@ -748,7 +766,7 @@ async function getSignedUrls(keys) {
     const options = {
       headers,
       method: "POST",
-      body: JSON.stringify({ htmlKeys, shotKeys }),
+      body: JSON.stringify(keys),
     };
 
     const res = await fetch(shooterAPI, options);
@@ -814,7 +832,7 @@ async function getSignedUrls(keys) {
 export async function deleteShot({ ids, user, site }) {
   //can send an array of shot IDs
   try {
-    if (!ids.length || !site || !user) throw { error: "Missing Params" };
+    if (!ids?.length || !site || !user) throw { error: "Missing Params" };
 
     !Array.isArray(ids) && (ids = [ids]);
     const u = db(user);
@@ -822,7 +840,14 @@ export async function deleteShot({ ids, user, site }) {
     const shotCol = db(safeSite(site, "_shot_key"));
 
     const r1 =
-      await db`delete from "public".${u} where id = any(${ids}) returning ${shotCol}`; //does this return a list of dynamically generated shotCol columns?
+      //SQL ok?
+      await db`delete from public.${u} where id = any(${ids}) returning ${shotCol}`;
+
+    if (!r1?.length)
+      throw { error: "No deletions returned from sql, ids: " + ids };
+
+    //update usermeta to include deleted shot count
+    await db`update private.usermeta set total_shots = total_shots + ${r1.length} where username = ${user}`;
 
     const shotKeysArr = r1.map((s) => s[shotCol]);
 
@@ -844,13 +869,16 @@ export async function setShotViewed({ site, ids, user }) {
     if (!user || !site || !ids) throw { error: "Missing parameters" };
 
     !Array.isArray(ids) && (ids = [ids]);
-    const sS = safeSite(site);
 
     const u = db(user);
-    await db`update "private".${u} set viewed = true where site = ${site} and id = any(${ids})`;
+    const sS = safeSite(site);
+    const shotCol = db(`${safeSite(site, "_")}_shot_key`);
 
-    //Store viewedId -- does this correctly apply the filter condition to unnest() -- where v->>'site' has value and is != sS?
-    await db`update "private"."users" set "viewedId" = array_append(array(select v from unnest("viewedId") as v where v->>'site' is not null and v->> 'site' != ${sS}), jsonb_build_object('site', ${sS}, "viewedId", ${ids.at(-1)}) ) where user = ${user}`;
+    //is this sql valid now?, I reckoned setting viewed = true is not valid, and pg expects typing to boolean;
+    await db`update public.${u} set viewed = 'true'::boolean where ${shotCol} is not null and id = any(${ids})`;
+
+    //Store current viewedId; Does this correctly apply the filter condition to unnest() -- where v->>'site' has value and is != sS?
+    await db`update private.users set "viewedId" = array_append(array(select v from unnest("viewedId") as v where v->>'site' is not null and v->> 'site' != ${sS}), jsonb_build_object('site', ${sS}, "viewedId", ${ids.at(-1)}) ) where user = ${user}`;
     return { error: null };
   } catch (e) {
     console.error("error in setEntryViewed: ", e);
@@ -871,9 +899,10 @@ export async function getUnviewedShotIds(user) {
     const u = db(tableName);
 
     const allSitesUnvieweds0 = userSites.map(async (s) => {
+      const shotCol = db(`${safeSite(s.site, "noDots")}_shot_key`);
       try {
         const uv =
-          await db`select id from "public".${u} where site = ${s.site} and viewed = false`;
+          await db`select id from public.${u} where ${shotCol} is not null and viewed = false::boolean`;
         const unvieweds = uv.map((uv) => uv.id); //gets unviewed ids;
         return { site: s.site, unvieweds };
       } catch (e) {
@@ -897,7 +926,7 @@ export async function getUnviewedShotIds(user) {
 export async function getCrons() {
   // Gets list of available cron schedules; can handle empty crons in frontend -- no need for '!res' throw
   try {
-    const crons = db`select cron from "private"."crons"`;
+    const crons = db`select cron from private.crons`;
     return { crons };
   } catch (e) {
     console.error("Error in getCrons", e);
@@ -912,7 +941,7 @@ export async function checkUser({ username, password }) {
   try {
     if (!username) throw { error: "Missing credentials" };
     const r =
-      await db`select username as user, password as pass, uuid, s."sessionId" as "sid" from "private"."users" u left join "private"."sessions" s on u.uuid = s.uuid where username = ${username}`;
+      await db`select username as user, password as pass, uuid, s."sessionId" as "sid" from private.users u left join private.sessions s on u.uuid = s.uuid where username = ${username}`;
     if (!r.length) throw { error: "User does not exist" };
 
     const samePass = await bcrypt.compare(password, r[0].pass);
@@ -943,8 +972,8 @@ export async function createUser({ userPass, safeSD }) {
     const sCol = safeSD ? db`, sites` : db``;
     const sVal = safeSD ? db`, array[${safeSD}::jsonb]` : db``;
 
-    await db`insert into "private"."users" (username, password, uuid ${sCol}) values (${username}, ${safePass}, ${uuid} ${sVal} )`;
-    await db`insert into "private"."sessions" (uuid, "sessionId") values (${uuid}, ${token})`;
+    await db`insert into private.users (username, password, uuid ${sCol}) values (${username}, ${safePass}, ${uuid} ${sVal} )`;
+    await db`insert into private.sessions (uuid, "sessionId") values (${uuid}, ${token})`;
 
     return { cookie, safeSD };
   } catch (e) {
@@ -961,21 +990,22 @@ export async function deleteUser(user, delPass) {
 
     if (!delPass) {
       const nextMonth = new Date(Date.now() + 28 * 24 * 3600 * 1000);
-      // await db`update "private"."users" set "deletionAttempt" = (case when "deletionAttempt" is not null then "deletionAttempt" else ${nextMonth} end) where username = ${user} returning "deletionAttempt"`;
+      // await db`update private.users set "deletionAttempt" = (case when "deletionAttempt" is not null then "deletionAttempt" else ${nextMonth} end) where username = ${user} returning "deletionAttempt"`;
       const msg = `An attempt at deleting your account was made, and this will be possible on \'${nextMonth.toLocaleString()}\' with or without your password. To prevent this, simply delete this notification or uncheck \"Delete Account anyway\" in profile.`;
 
       const r1 =
-        await db`update "private"."users" set "deletionAttempt" = (case when "deletionAttempt" ->> 'message' is not null then "deletionAttempt" else jsonb_build_object('deletionDue', ${nextMonth}, 'message', ${msg} )  ) where username = ${user} returning "deletionAttempt"`;
-      deletionDue = r1?.[0]?.deletionDue;
+        //is the following sql syntactically correct?
+        await db`update private.users set "deletionAttempt" = (case when "deletionAttempt" ->> 'message' is not null then "deletionAttempt" else jsonb_build_object('deletionDue', ${nextMonth}, 'message', ${msg} ) end) where username = ${user} returning "deletionAttempt"`;
+      deletionDue = r1?.[0]?.deletionAttempt?.deletionDue;
       if (new Date(deletionDue) < new Date()) delReady = true;
     }
 
     if (delPass || delReady) {
-      //count is inaccurate for total shotsTaken -- will need to store count of deleted keys during delEntry and push that to deletedUsers on delete
-      const c = await db`select count(*) from "public".${db(user)}`;
-      await db`insert into "private"."deletedUsers" (username, shotsTaken) values (${user}, ${c[0]?.count})`;
-      await db`delete from "private"."users" where username = ${user}`;
-      await db`drop table "public".${db(user)}`;
+      //Store usage data on user deletion
+      const c = await db`select count(*) from public.${db(user)}`;
+      await db`insert into private."deletedUsers" (username, "shotsTaken") values (${user}, ${c?.[0]?.count || 0})`;
+      await db`delete from private.users where username = ${user}`;
+      await db`drop table public.${db(user)}`;
       return { deletionDue, deleted: true };
     }
 
@@ -989,16 +1019,18 @@ export async function deleteUser(user, delPass) {
 export async function cancelDeleteUser(user) {
   try {
     const r1 =
-      await db`update "private"."users" set "deletionAttempt" = null where username = ${user}`;
+      await db`update private.users set "deletionAttempt" = null where username = ${user}`;
     return { error: null };
   } catch (e) {
+    console.error("Trouble canceling 'delete account' action", e);
     return { error: "Trouble canceling 'delete account'!" };
   }
 }
 
 /**
  * @param {*} param0
- * @returns {Promise<{tableName?: string, userSites?: any[], maxCrons?: number, error?: string}>}
+ * @typedef {{site:string, cron:string, range:{start:string, end:string}}} userSite
+ * @returns {Promise<{tableName?: string, userSites?: userSite[], maxCrons?: number, error?: string}>}
  */
 export async function getUserSites({ user }) {
   //userSites: {site, cron, range}[]
@@ -1007,10 +1039,10 @@ export async function getUserSites({ user }) {
     if (!user) throw { error: "Unknown user!" };
 
     const r1 =
-      await db`select table_name as t from information_schema.tables where table_schema = 'public' and table_name = ${user}`; //is this right with public quoted?
+      await db`select table_name as t from information_schema.tables where table_schema = 'public' and table_name = ${user}`;
 
     const r2 =
-      await db`select sites, "maxCrons" from "private"."users" where username = ${user}`;
+      await db`select sites, "maxCrons" from private.users where username = ${user}`;
 
     const siteData = { tableName: r1?.[0]?.t, userSites: r2?.[0]?.sites };
     return { ...siteData, maxCrons: r2?.[0]?.maxCrons };
@@ -1038,13 +1070,17 @@ export async function getActiveSites(user) {
 }
 
 export async function setSiteInactive({ site, cron, user }) {
+  //sets site in users to inactive and deletes all rows from user table;
   try {
-    if (!site || !cron) throw { error: "Missing parameters" };
+    if (!site || !cron || !user) throw { error: "Missing parameters" };
     if (!db) throw { error: "Db uninitialized!" };
 
-    const r2 =
-      await db`update "private"."users" set sites = array( select (case when s ->> 'site' = ${site} and s ->> 'cron' = ${cron} then jsonb_set(s, '{active}', false ) else s end ) from unnest(sites) as s ) where username = ${user}`;
+    const sCol = safeSite(site, "noDots");
 
+    const r2 =
+      await db`update private.users set sites = array( select (case when s ->> 'site' = ${site} and s ->> 'cron' = ${cron} then jsonb_set(s, '{active}', 'false'::jsonb ) else s end ) from unnest(sites) as s ) where username = ${user}`;
+
+    const r3 = await db`delete from public.${user} where ${sCol} is not null`;
     return { error: null };
   } catch (e) {
     console.error("In setSiteInactive: ", e);
@@ -1054,7 +1090,7 @@ export async function setSiteInactive({ site, cron, user }) {
 
 /**
  * @typedef {{id?:number, date?:Date, msg:string, danger?:boolean}} msgData
- * @param {{msgData: msgData, user?:string, del?:boolean, logError?:boolean }} msgData
+ * @param {{msgData: msgData, user?:string | string[], del?:boolean, logError?:boolean }} msgData
  * @returns {Promise<{id: number, error: string}>}
  */
 export async function setNotification({ msgData, user, del, logError }) {
@@ -1077,8 +1113,8 @@ export async function setNotification({ msgData, user, del, logError }) {
     //logError msg can be object
     const message = typeof msg == "string" ? msg.trim() : msg;
 
-    if ((!message && !del) || (del && !i))
-      throw { error: "Missing parameters" };
+    if (!message && !del) throw { error: "Message missing in delete request!" };
+    if (del && !i) throw { error: "ID missing in delete request!" };
 
     const u = Array.isArray(user) ? user : [user];
     const id = i || ID();
@@ -1087,21 +1123,21 @@ export async function setNotification({ msgData, user, del, logError }) {
 
     if (!del) {
       u[0] &&
-        (await db`update "private"."users" set notifications = array_append(notifications, ${noti}::jsonb ) where username = any(${u})`);
+        (await db`update private.users set notifications = array_append(notifications, ${noti}::jsonb ) where username = any(${u})`);
       logError &&
-        (await db`insert into "private"."errorLogs" (error, id) values (${{ message }}, ${id})`);
+        (await db`insert into private."errorLogs" (error, id) values (${{ date, message }}, ${id})`);
     } else {
       u[0] &&
-        (await db`update "private"."users" set notifications = array(select n from unnest(notifications) as n where n ->> 'id' != ${id}) where username = any(${u}) `);
+        (await db`update private.users set notifications = array(select n from unnest(notifications) as n where n ->> 'id' != ${id}) where username = any(${u})`);
       logError &&
-        (await db` delete from "private"."errorLogs" where id = ${id} `);
+        (await db` delete from private."errorLogs" where id = ${id} `);
     }
 
     return { id };
   } catch (e) {
     console.error("Error in notifyEntry: ", e);
     return {
-      error: "Could not set or delete notification. " + e.error || "",
+      error: "Could not set or delete notification. " + e?.error || "",
     };
   }
 }
@@ -1118,9 +1154,9 @@ export async function createSession(password, username, expires) {
     const cookie = await createCookie();
     const token = await getToken(cookie);
     const r1 = //is this valid sql?
-      await db`update "private"."sessions" s set "sessionId" = ${token}, expires = ${expires} left join "private"."users" u on s.uuid = u.uuid where uuid = ${uid} returning u.username`;
+      await db`update private.sessions s set "sessionId" = ${token}, expires = ${expires} from private.users u where s.uuid = u.uuid and s.uuid = ${uid} returning u.username`;
 
-    //can set fingerprint ID -- nope, handled elsewhere
+    //can set fingerprint ID -- nope, handled elsewhere;
 
     return { cookie, user: r1?.[0]?.username };
   } catch (e) {
@@ -1133,7 +1169,6 @@ export async function createSession(password, username, expires) {
  * @param {{token: string, expires?: Date }} args
  * @returns {Promise<{ user: string, uid: string, joined: string, error?: string, isAdmin: number }>}
  */
-
 export async function getSession({ token, expires }) {
   //scrap isAdmin -- will need to do db check before retrieving sensitive info, so must get admin status in function -- same thing -- I can get from validateSession in said function.
   //Call with expires to update lastLog else it retrieves session. if (expires): absence of error indicates success;
@@ -1144,7 +1179,7 @@ export async function getSession({ token, expires }) {
 
     if (!expires) {
       r =
-        await db`select u.username as user, uuid, expires, u.created as joined from "private"."sessions" s inner join "private"."users" u on s.uuid = u.uuid where "sessionId" = ${token}`;
+        await db`select u.username as user, u.uuid, expires, u.created as joined from private.sessions s inner join private.users u on s.uuid = u.uuid where s."sessionId" = ${token}`;
 
       if (!r[0]) throw { error: "Unknown user" };
       if (new Date() > new Date(r[0].expires))
@@ -1152,7 +1187,7 @@ export async function getSession({ token, expires }) {
 
       console.log("in getSession. Valid user: ", r);
     } else {
-      await db`update "private"."sessions" set "lastLog" = now(), expires = ${expires} where "sessionId" = ${token}`;
+      await db`update private.sessions set "lastLog" = now(), expires = ${expires} where "sessionId" = ${token}`;
     }
 
     const r1 = { joined: r?.[0]?.joined, isAdmin: r?.[0]?.isAdmin };
@@ -1167,7 +1202,7 @@ export async function deleteSession(token) {
   try {
     if (!token) throw { error: "Empty token string" };
 
-    await db`update "private"."sessions" set "sessionId" = null where "sessionId" = ${token}`;
+    await db`update private.sessions set "sessionId" = null where "sessionId" = ${token}`;
     return { error: null };
   } catch (e) {
     console.error("in deleteSession. Error: ", e);

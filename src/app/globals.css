@@ -175,6 +175,7 @@
   .logGradient {
     background-image: linear-gradient(45deg, #231c4666, #451048);
   }
+
   .signGradient {
     background-image: linear-gradient(45deg, #231c4666, #1f5761);
   }

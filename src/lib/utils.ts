@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 // -------------> helper functions
 export function safeSite(site: string, noDots?: string) {
   try {
-    site = site.trim();
+    site = site?.trim();
     if (!site) throw { error: "Missing parameters!" };
     if (!site.startsWith("http")) site = "https://" + site;
 
