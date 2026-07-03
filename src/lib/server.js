@@ -109,14 +109,13 @@ export async function delPrevEntry({ cron, site, user }) {
     const shotCol = db(`${safeSite(site, "noDots")}_shot_key`);
     const u = db(user);
 
-    //Q: I assume r2 returns rows of all deleted keys?
     const r2 =
-      await db`delete from public.${u} where ${shotCol} is not null and date < now() - ${sD} days returning ${shotCol} as "shotKey", count(*)`;
+      await db`delete from public.${u} where ${shotCol} is not null and date < now() - ${sD} days returning ${shotCol} as "shotKey"`;
 
     if (!r2.length) throw { error: "In delPrevEntry: rows failed to delete!" };
 
-    await db`update private.usermeta set total_shots = `;
-    //Q: does this accurately map the shotKey column?
+    await db`update private.usermeta set total_shots = total_shots + ${r2.length} where username = ${user}`;
+
     const shotKeys = r2.map((shotData) => shotData?.shotKey);
 
     const { error } = await deleteR2Shot(shotKeys);
@@ -155,7 +154,7 @@ async function deleteR2Shot(shotKeysArr) {
       body: JSON.stringify({ keys: shotKeysArr }),
     });
 
-    //result can be in json form or text() form -- what does text() do?
+    //result can be in json form or text() form.
     const e =
       (await res?.json()) || (await res?.text()) || "Error deleting shot!";
 
@@ -193,7 +192,6 @@ export async function getCronSites(cron) {
       if (error) throw { error: error };
 
       console.log(`in getCronSites. Cron: '${cron}' cleaned!`);
-      //Q: added quotes to dynamic var 'cron', or does the evaluated string come already quoted?
       return { error: null };
     }
 
@@ -299,28 +297,28 @@ export async function updateShotSchema({ site, user, del }) {
       if (del)
         await db`create table public.${u} (id serial primary key, date timestamptz default now())`;
       else {
-        await db`create table public.${u} (id serial primary key, date timestamptz default now(), viewed boolean default false, key_expires timestamptz default now(), ${shotCol} text, ${htmlCol} text, shot_url text, html_url text)`; //does this work as intended -- I'm concerned about 'now()', '7 days'?
+        await db`create table public.${u} (id serial primary key, date timestamptz default now(), viewed boolean default false, key_expires timestamptz default now(), ${shotCol} text, ${htmlCol} text, shot_url text, html_url text)`;
         await db`insert into private.usermeta (username, total_sites) values (${user}, 1)`;
       }
     } else {
       const alterTb = db`alter table public.${u}`;
       if (del) {
         //deleting site from an existing table
-        const dRows =
-          await db`delete from public.${u} where ${shotCol} is not null returning count(${shotCol})`; //does this return the count of deleted rows?
+        const dR =
+          await db`delete from public.${u} where ${shotCol} is not null returning ${shotCol}`;
         await db`${alterTb} drop column ${htmlCol}, drop column ${shotCol}`;
 
-        const dR = dRows?.[0]?.count;
-        if (dR)
-          await db`update private.usermeta set total_shots = total_shots + ${dR} where username = ${user}`;
+        if (dR?.length)
+          await db`update private.usermeta set total_shots = total_shots + ${dR.length} where username = ${user}`;
       } else {
         //Adding site to existing table
         const sameCol =
-          await db`select column_name from information_schema.columns where table_name = ${u} and schema_name = 'public' and column_name = ${shotCol}`;
+          await db`select column_name from information_schema.columns where table_name = ${user} and table_schema = 'public' and column_name = ${shotCol}`;
 
-        if (!sameCol?.[0]) {
+        if (!sameCol.length) {
+          //shot/htmlCol do not exist and don't need 'if not exists' check.
           await db`${alterTb} add column if not exists viewed boolean default false, add column if not exists key_expires timestamptz default now(), add column ${htmlCol} text, add column ${shotCol} text, add column if not exists shot_url text, add column if not exists html_url text`;
-          await db`update private.usermeta set total_sites = total_sites + 1`;
+          await db`update private.usermeta set total_sites = total_sites + 1 where username = ${user}`;
         }
       }
     }
@@ -399,7 +397,7 @@ export async function updateCronTable({ safeSD, user, del }) {
     const cronData = { user, site, ...(range ? { range } : {}) };
 
     const r1 = await db`select count(cron) from private.crons`;
-    const cronCount = r1[0].count; //I reckon count(cron) is accessible as count?;
+    const cronCount = r1[0].count;
 
     //check app crons;
     if (!cronCount) {
@@ -649,7 +647,6 @@ export async function getUserShots(shotSet) {
 export async function getVisitorShots(shotSet) {
   //check if VSITE, VTB vars are set
   try {
-    //is using let in destructure like this ok, since I reassign to id or will eslint throw on vercel deploy?
     const { id, next: n } = shotSet;
 
     const saferSite = safeSite(process.env.VSITE, "noDots");
@@ -691,7 +688,7 @@ export async function getVisitorShots(shotSet) {
       });
     }
 
-    //viewedIds would filter out deelted shots which have key_expires (expires) as null -- but that is redundant since it's filered in shotsData; but answer if s.expires sql null is parsed as JS null as expected? or perhaps its a string 'null' instead -- making the filter innefective.
+    //viewedIds would filter out deleted shots which have key_expires (expires) as null, but that is redundant since it is filtered in shotsData.
     const viewIds = shotsData.filter((s) => s.expires).map((s) => s.id);
     const nextCursor = viewIds.at(-1);
     const prevCursor = viewIds.at(0);
@@ -874,11 +871,10 @@ export async function setShotViewed({ site, ids, user }) {
     const sS = safeSite(site);
     const shotCol = db(`${safeSite(site, "_")}_shot_key`);
 
-    //is this sql valid now?, I reckoned setting viewed = true is not valid, and pg expects typing to boolean;
-    await db`update public.${u} set viewed = 'true'::boolean where ${shotCol} is not null and id = any(${ids})`;
+    await db`update public.${u} set viewed = true where ${shotCol} is not null and id = any(${ids})`;
 
-    //Store current viewedId; Does this correctly apply the filter condition to unnest() -- where v->>'site' has value and is != sS?
-    await db`update private.users set "viewedId" = array_append(array(select v from unnest("viewedId") as v where v->>'site' is not null and v->> 'site' != ${sS}), jsonb_build_object('site', ${sS}, "viewedId", ${ids.at(-1)}) ) where user = ${user}`;
+    //Store current viewedId with site filter applied to the existing viewedId array.
+    await db`update private.users set "viewedId" = array_append(array(select v from unnest("viewedId") as v where v->>'site' is not null and v->> 'site' != ${sS}), jsonb_build_object('site', ${sS}, "viewedId", ${ids.at(-1)}) ) where username = ${user}`;
     return { error: null };
   } catch (e) {
     console.error("error in setEntryViewed: ", e);
@@ -994,7 +990,6 @@ export async function deleteUser(user, delPass) {
       const msg = `An attempt at deleting your account was made, and this will be possible on \'${nextMonth.toLocaleString()}\' with or without your password. To prevent this, simply delete this notification or uncheck \"Delete Account anyway\" in profile.`;
 
       const r1 =
-        //is the following sql syntactically correct?
         await db`update private.users set "deletionAttempt" = (case when "deletionAttempt" ->> 'message' is not null then "deletionAttempt" else jsonb_build_object('deletionDue', ${nextMonth}, 'message', ${msg} ) end) where username = ${user} returning "deletionAttempt"`;
       deletionDue = r1?.[0]?.deletionAttempt?.deletionDue;
       if (new Date(deletionDue) < new Date()) delReady = true;
@@ -1080,7 +1075,8 @@ export async function setSiteInactive({ site, cron, user }) {
     const r2 =
       await db`update private.users set sites = array( select (case when s ->> 'site' = ${site} and s ->> 'cron' = ${cron} then jsonb_set(s, '{active}', 'false'::jsonb ) else s end ) from unnest(sites) as s ) where username = ${user}`;
 
-    const r3 = await db`delete from public.${user} where ${sCol} is not null`;
+    //Rather not delete all shots on inactive -- user may reset as active and resume schedule;
+    // const r3 = await db`delete from public.${db(user)} where ${sCol} is not null`;
     return { error: null };
   } catch (e) {
     console.error("In setSiteInactive: ", e);
@@ -1153,8 +1149,7 @@ export async function createSession(password, username, expires) {
 
     const cookie = await createCookie();
     const token = await getToken(cookie);
-    const r1 = //is this valid sql?
-      await db`update private.sessions s set "sessionId" = ${token}, expires = ${expires} from private.users u where s.uuid = u.uuid and s.uuid = ${uid} returning u.username`;
+    await db`update private.sessions s set "sessionId" = ${token}, expires = ${expires} from private.users u where s.uuid = u.uuid and s.uuid = ${uid} returning u.username`;
 
     //can set fingerprint ID -- nope, handled elsewhere;
 

@@ -89,8 +89,8 @@ NODE_ENV=development
 
 ## Database & schema notes
 
-- **User tables**: Per-user tables are created/altered dynamically by `updateShotSchema` and have columns like `viewed`, `key_expires`, `shot_url`, and `{site}_shot_key` / `{site}_html_key`.
-- **Metadata**: App-level metadata stored in `private.*` tables: `private.settings`, `private.crons`, `private.users`.
+- **User tables**: Per-user tables are created/altered dynamically by `updateShotSchema` and have columns `id` serial (auto-increment), `date`, `viewed`, `key_expires`, `shot_url`, `html_url`, `{site}_shot_key`, `{site}_html_key`.
+- **Metadata**: App-level metadata stored in `private.*` tables: `private.settings`, `private.crons`, `private.users`, `private.usermeta`.
 
 ---
 
