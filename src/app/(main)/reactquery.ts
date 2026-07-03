@@ -265,12 +265,12 @@ export function useQueryCrons() {
 }
 
 export function useUserData() {
-  const userQuery = useQuery<userData, { error: any }>({
+  const userQuery = useQuery<userData>({
     queryKey: ["userData"],
     queryFn: async () => {
       const { error, ...rest } = await getUserData();
       if (error) throw error;
-      return rest as userData;
+      return rest;
     },
     staleTime: Infinity,
   });

@@ -127,7 +127,7 @@ export async function signUser({ username, password, siteData }: signUser) {
   return { error: null };
 }
 
-export async function getUserData(): Promise<userData & { error?: string }> {
+export async function getUserData(): Promise<userData> {
   // here I'll collect all the info needed to display in frontend for an active session
   // notifications: InfiniteQuery; notepad, will have own functions.
   const { user, joined, isAdmin } = await validateSession();

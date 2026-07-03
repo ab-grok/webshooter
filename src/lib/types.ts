@@ -24,9 +24,10 @@ export type userData = {
   user?: string;
   joined?: string;
   isAdmin?: isAdmin;
-  maxCrons?: number | undefined;
-  activeSites?: shotData[] | undefined;
-  userSites?: shotData[] | undefined;
+  maxCrons?: number;
+  activeSites?: userSites;
+  userSites?: userSites;
+  error?: string;
 };
 
 export type handleDownload = {
@@ -104,9 +105,7 @@ export type delShotType = {
 
 export type range = { start: number; end: number } | null;
 
-export type userSites = {
-  sites: siteData;
-}[];
+export type userSites = siteData[];
 
 export type queryData = {
   pages: shots[];
