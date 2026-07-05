@@ -177,8 +177,9 @@ export async function getCronSites(cron) {
     const r1 =
       await db`select "cronData" as "cD" from private.crons where cron = ${cron}`;
     const cronsData = r1?.[0]?.cD;
+    console.log("In getCronSites. cronsData: ", cronsData);
 
-    if (!cronsData || (cronsData.length == 1 && !cronsData[0])) {
+    if (!cronsData || (cronsData.length == 1 && !cronsData[0]?.site)) {
       //Logs empty cron then del
       const msg = `in getCronSites. Cron schedule '${cron}' missing. Running cleanup!`;
       const eLog = { msgData: { msg }, logError: true };
@@ -200,7 +201,7 @@ export async function getCronSites(cron) {
       let erred;
 
       const r2 =
-        await db`select s."lastLog" from private.users u inner join private.sessions s on u.uuid = s.uuid where username = ${user} `;
+        await db`select s."lastLog" from private.users u inner join private.sessions s on u.uuid = s.uuid where u.username = ${user} `;
       const lastLog = r2?.[0]?.lastLog;
 
       console.log(`in getCronSites; cronsData index: : ${i}`, {
@@ -210,7 +211,7 @@ export async function getCronSites(cron) {
 
       //when user is unloggd past 3 months: set user sites and cron inactive & deleted;
       if (!lastLog || userInactivePeriod > new Date(lastLog)) {
-        const msg = `User unlogged past 3 months! Cron: ${cron} on Site: ${site} and its keys have been purged!`;
+        const msg = `User unlogged for 3 months! Cron: '${cron}' on Site: '${site}' and its shots have been purged!`;
         await setNotification({ msgData: { msg, danger: true }, user });
         console.log(msg, lastLog);
 
@@ -390,14 +391,14 @@ export async function updateCronTable({ safeSD, user, del }) {
   //canAddCron: checks max app crons is not reahed -- 5 right now; Returns {delWorker: true} indicates to run del in updWorker().
 
   //Retroactively deletes inactive user crons per invocation (not an immediate delete);
-  //if signing, Call after updateUserSites -- that may throw errors (user's maxCron), which this depends on.
+  //if on sign, Call after updateUserSites, as that potentially throws errors (user's maxCron), which this depends on.
 
   try {
     const { cron, site, range } = safeSD;
     const cronData = { user, site, ...(range ? { range } : {}) };
 
     const r1 = await db`select count(cron) from private.crons`;
-    const cronCount = r1[0].count;
+    const cronCount = r1?.[0]?.count;
 
     //check app crons;
     if (!cronCount) {
@@ -411,7 +412,7 @@ export async function updateCronTable({ safeSD, user, del }) {
 
     //app crons > 1; Check for existing cron
     const r2 = await db`select cron from private.crons where cron = ${cron}`;
-    const sameCron = r2[0]?.cron;
+    const sameCron = r2?.[0]?.cron;
 
     const r3 = await db`select "maxCrons" from private.settings where id = 1`;
 
@@ -420,8 +421,9 @@ export async function updateCronTable({ safeSD, user, del }) {
     if (!sameCron) {
       //cron is new
       if (del) throw { error: "Cron does not exist!" };
+
       //new or reactivating site can't get cron schedule, so must set site inactive
-      if (!canAddCron) throw { error: "app maxCrons reached." };
+      if (!canAddCron) throw { error: "App maxCrons reached." };
 
       await db`insert into private.crons (cron, "cronData") values (${cron}, array[${cronData}::jsonb)]`;
       return { updWorker: true };
@@ -452,8 +454,8 @@ export async function updateCronTable({ safeSD, user, del }) {
     const log = `${e1} ${JSON.stringify({ user, error: e })}`;
     console.error(log);
 
-    if (!del) await setSiteInactive({ ...safeSD });
-    return { error: e0 + e.error || "" };
+    if (!del) await setSiteInactive(safeSD);
+    return { error: e0 + (e.error || "") };
   }
 }
 
@@ -462,17 +464,17 @@ export async function updateWorker({ safeSD, user, del }) {
     //in future can do better schedule organisation: selecting high order schedules and probing db for intersecting crons; -- can take any cron check cron list for matching pattern eg a cron for /30mins and preexisting /10mins can share execute
     const { cron, site } = safeSD;
 
-    const shooterAPI = process.env.WEBWORKER_API;
-    const shooterKey = process.env.WEBWORKER_KEY;
-    console.log("in UpdateWorker. ", { shooterAPI, shooterKey });
-    if (!shooterKey || !shooterAPI) throw { error: "env vars not found!" };
+    const workerAPI = process.env.WEBWORKER_API;
+    const workerKey = process.env.WEBWORKER_KEY;
+    console.log("in UpdateWorker. ", { workerAPI, workerKey });
+    if (!workerKey || !workerAPI) throw { error: "env vars not found!" };
 
     const headers = {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${shooterKey}`,
+      Authorization: `Bearer ${workerKey}`,
     };
 
-    const r1 = await fetch(shooterAPI + "/schedules", {
+    const r1 = await fetch(workerAPI + "/schedules", {
       headers,
     });
     const worker = await r1?.json();
@@ -510,7 +512,7 @@ export async function updateWorker({ safeSD, user, del }) {
       updCrons = [...prevCrons, { cron }];
     }
 
-    const r3 = await fetch(shooterAPI + "/schedules", {
+    const r3 = await fetch(workerAPI + "/schedules", {
       method: "PUT",
       headers,
       body: JSON.stringify(updCrons),

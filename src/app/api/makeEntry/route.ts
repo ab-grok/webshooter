@@ -17,10 +17,13 @@ export async function POST(req: Request) {
     //shotData : {htmlKey, shotKey, user, site, range, id}
     const { error } = await makeEntry(shotData);
     if (error) throw { error };
+
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
     const msg = `Error in makeEntry API: ${JSON.stringify(e?.error || e?.message || e)}`;
 
     const msgData = { msg, danger: true };
     await setNotification({ msgData, logError: true });
+    return NextResponse.json({ error: e.message || e.error, status: 500 });
   }
 }

@@ -2,6 +2,7 @@
 
 import { setNotification } from "@/lib/server";
 import * as jose from "jose";
+import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
@@ -18,7 +19,10 @@ export async function POST(req: Request) {
 
     const { error } = await setNotification(noti);
     if (error) throw { error };
-  } catch (e) {
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
     console.error("Error in setNotification (API). data: ", e);
+    return NextResponse.json({ error: e?.message, status: 500 });
   }
 }
