@@ -1127,12 +1127,12 @@ export async function setNotification({ msgData, user, del, logError }) {
       u[0] &&
         (await db`update private.users set notifications = array_append(notifications, ${noti}::jsonb ) where username = any(${u})`);
       logError &&
-        (await db`insert into private."errorLogs" (error, id) values (${{ date, message }}, ${id})`);
+        (await db`insert into private."errorLogs" (error, e_id) values (${{ date, message }}, ${id})`);
     } else {
       u[0] &&
-        (await db`update private.users set notifications = array(select n from unnest(notifications) as n where n ->> 'id' != ${id}) where username = any(${u})`);
+        (await db`update private.users set notifications = array(select n from unnest(notifications) as n where n ->> 'e_id' != ${id}) where username = any(${u})`);
       logError &&
-        (await db` delete from private."errorLogs" where id = ${id} `);
+        (await db` delete from private."errorLogs" where e_id = ${id} `);
     }
 
     return { id };
