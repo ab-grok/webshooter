@@ -82,7 +82,7 @@ async function entryExists({ htmlData, user }) {
     const u = db(user);
 
     const r1 =
-      await db`select id from public.${u} where date > now() - 1 day and html like ${partHtml} order by date desc limit 1`;
+      await db`select id from public.${u} where date > now() - interval 1 day and html like ${partHtml} order by date desc limit 1`;
 
     if (r1[0].id) return r1[0].id;
 
@@ -110,7 +110,7 @@ export async function delPrevEntry({ cron, site, user }) {
     const u = db(user);
 
     const r2 =
-      await db`delete from public.${u} where ${shotCol} is not null and date < now() - ${sD} days returning ${shotCol} as "shotKey"`;
+      await db`delete from public.${u} where ${shotCol} is not null and date < now() - (${sD} * interval '1 days') returning ${shotCol} as "shotKey"`;
 
     if (!r2.length) throw { error: "In delPrevEntry: rows failed to delete!" };
 
@@ -125,7 +125,7 @@ export async function delPrevEntry({ cron, site, user }) {
   } catch (e) {
     const params = { msg: "error in delPrevEntry", e, cron, site, user };
     console.error("error in delPrevEntry", params);
-    return { error: "error in delPrevEntry" + e.error || "" };
+    return { error: "error in delPrevEntry" + e?.error || e?.message || e };
   }
 }
 
