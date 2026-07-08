@@ -114,7 +114,7 @@ export default {
       console.error("Error in scheduled: ", e);
 
       const body = {
-        msg: "Error in scheduled: " + JSON.stringify(e.message || e),
+        msg: "Error in scheduled: " + JSON.stringify(e?.message || e),
       };
       const fetchProps = { cron, env, body, method: "POST" };
       await Fetch({ ...fetchProps, endpoint: "/setNotification" });
@@ -166,10 +166,10 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
       } catch (e) {
         console.error("Error in takeShot > for loop: ", e);
 
-        const msg = `Error in readySites, Site: ${site}, User: ${user}, Error: ${JSON.stringify(e.message || e)}`;
+        const msg = `Error in readySites, Site: ${site}, User: ${user}, Error: ${JSON.stringify(e?.message || e)}`;
         const fetchProps = { Auth, cron, env, body: { msg }, method: "POST" };
         console.error(msg);
-        await Fetch({ ...fetchProps, endpoint: "/setNotification" }); //Check `src/app/api/setNotification/route.ts` that I access 'msg' correctly?
+        await Fetch({ ...fetchProps, endpoint: "/setNotification" }); //Check `src/app/api/setNotification/route.ts` that I access 'msg' correctly.
       } finally {
         await page?.close();
       }
@@ -180,7 +180,7 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
     console.error("Error in getShotUrls: ", e);
 
     const body = {
-      msg: "Error in getShotUrls: " + JSON.stringify(e.message || e),
+      msg: "Error in getShotUrls: " + JSON.stringify(e?.message || e),
     };
     const fetchProps = { Auth, cron, env, body, method: "POST" };
     await Fetch({ ...fetchProps, endpoint: "/setNotification" });

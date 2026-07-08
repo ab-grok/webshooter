@@ -112,13 +112,16 @@ export async function delPrevEntry({ cron, site, user }) {
     const r2 =
       await db`delete from public.${u} where ${shotCol} is not null and date < now() - (${sD} * interval '1 days') returning ${shotCol} as "shotKey"`;
 
-    if (!r2.length) throw { error: "In delPrevEntry: rows failed to delete!" };
+    if (!r2.length) {
+      console.log("User has no prev shots, may be an error!");
+      return { error: null };
+    }
 
     await db`update private.usermeta set total_shots = total_shots + ${r2.length} where username = ${user}`;
 
-    const shotKeys = r2.map((shotData) => shotData?.shotKey);
+    const delShotKeys = r2.map((shotData) => shotData?.shotKey);
 
-    const { error } = await deleteR2Shot(shotKeys);
+    const { error } = await deleteR2Shot(delShotKeys);
     if (error) console.error("In delPrevEntry: " + error);
 
     return { error: null };

@@ -109,9 +109,11 @@ NODE_ENV=development
 
 ---
 
-## Known Issues (Unused App features)
+## Known Issues / Purged features
 
-1. **Obsolete SiteData.Range**: `range` enabled partial matching of _HTML_ text to determine if the concerned html section had changed and required a fresh shot be stored instead of reusing the former. Goal was to save space, but since CloudFlare's R2 storage provides no mechanism for such matching unlike Postgres and also provides much more storage space `(10gb)`. The compute costs on each worker + next app call seemed to outweigh benefits.
+1. **SiteData.Range** _(obsolete)_: `range` enabled partial matching of _HTML_ text to determine if the concerned html section had changed and required a fresh shot be stored instead of reusing the former. Goal was to save space, but since CloudFlare's R2 storage provides no mechanism for such matching unlike Postgres and also provides much more storage space `(10gb)`. The compute costs on each worker + next app call seemed to outweigh benefits.
+
+2. **Max Browsers** _(On free tier)_: It seems CloudFlare has concurrent browser limit set to 3. This is a problem when different crons fire at the same time.
 
 ---
 
