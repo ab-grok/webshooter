@@ -94,7 +94,7 @@ async function entryExists({ htmlData, user }) {
 }
 
 export async function delPrevEntry({ cron, site, user }) {
-  // called (indirectly) from worker, runs before setting shot: 7 days limit May be underutilization since R2 storage move
+  // called from worker > getCronSite, runs before setting shot; 7 days limit May be too constraining considering R2 storage capacity (10gb);
   try {
     if (!user || !cron || !site) throw { error: "Missing params." };
 
@@ -113,7 +113,7 @@ export async function delPrevEntry({ cron, site, user }) {
       await db`delete from public.${u} where ${shotCol} is not null and date < now() - (${sD} * interval '1 days') returning ${shotCol} as "shotKey"`;
 
     if (!r2.length) {
-      console.log("User has no prev shots, may be an error!");
+      console.log("User has no prev shots! Expected occurrence not an error!");
       return { error: null };
     }
 
@@ -193,7 +193,7 @@ export async function getCronSites(cron) {
 
       const updW = { user: "Cleaner", cron, del: true };
       const { error } = await updateWorker(updW);
-      if (error) throw { error: error };
+      if (error) throw { error };
 
       console.log(`in getCronSites. Cron: '${cron}' cleaned!`);
       return { error: null };
@@ -212,7 +212,7 @@ export async function getCronSites(cron) {
         lastLog,
       });
 
-      //when user is unloggd past 3 months: set user sites and cron inactive & deleted;
+      //if user is unloggd past 3 months: set user sites and cron inactive & deleted;
       if (!lastLog || userInactivePeriod > new Date(lastLog)) {
         const msg = `User unlogged for 3 months! Cron: '${cron}' on Site: '${site}' and its shots have been purged!`;
         await setNotification({ msgData: { msg, danger: true }, user });
@@ -246,7 +246,7 @@ export async function getCronSites(cron) {
         }
       }
 
-      //When cron exists: remove previous keys greater than 7 days -- can probably go higher since R2 bucket has 10GB storage limit .
+      //When cron exists: remove previous keys greater than 7 days -- can probably extend store days since R2 bucket provides 10GB storage limit .
       const { error: delPrevErr } = await delPrevEntry({ cron, site, user });
       if (delPrevErr) {
         //mutate "errorLogs" to include delPrevErr;
@@ -258,20 +258,20 @@ export async function getCronSites(cron) {
         ];
       }
 
-      if (erred) continue; //Do not push to readySites when erred;
+      if (erred) continue; //Skip pushing to readySites if erred;
       readySites.push({ user, site, range });
     }
 
     //Accounting for worker timeout scenario -- users get pessimistically notified of failed attempt, this is later removed on successful write.
-    const msg = `Shot failed to save: Cron ${cron} fired on ${formatDate(new Date())}.`;
+    const msg = `Shot failed to save: Cron '${cron}' ran on ${formatDate(new Date())}.`;
     const user = readySites.map((s) => s.user);
     const msgData = { msg, danger: true };
     const { id } = await setNotification({ msgData, user });
 
     //Erred during loop: Logs error per user.
-    errLogs.forEach((e) => {
-      const msgData = { msg: JSON.stringify(e), danger: true };
-      setNotification({ msgData, logError: true });
+    errLogs.forEach((err) => {
+      const msgData = { msg: JSON.stringify(err), danger: true };
+      setNotification({ msgData, user: err.user, logError: true });
     });
 
     return { readySites, id };
@@ -462,10 +462,9 @@ export async function updateCronTable({ safeSD, user, del }) {
   }
 }
 
-export async function updateWorker({ safeSD, user, del }) {
+export async function updateWorker({ cron, user, del }) {
   try {
     //in future can do better schedule organisation: selecting high order schedules and probing db for intersecting crons; -- can take any cron check cron list for matching pattern eg a cron for /30mins and preexisting /10mins can share execute
-    const { cron, site } = safeSD;
 
     const workerAPI = process.env.WEBWORKER_API;
     const workerKey = process.env.WEBWORKER_KEY;
@@ -539,7 +538,7 @@ export async function updateWorker({ safeSD, user, del }) {
       await setSiteInactive(safeSD);
     }
 
-    return { error: e0 + e.error || "" };
+    return { error: e0 + e?.error || e?.message || "" };
   }
 }
 

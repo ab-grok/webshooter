@@ -11,7 +11,7 @@ export async function POST(req: Request) {
 
     const { payload } = await jose.jwtVerify(token, secret);
 
-    const msg = (await req.json()).msg;
+    const { msg } = await req.json();
 
     if (!msg) throw { message: "Worker sent empty 'msg' to setNotification." };
 

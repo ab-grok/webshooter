@@ -106,7 +106,8 @@ export default {
       console.log("In scheduled", { Auth, data });
       const { readySites, id, error } = data;
       if (error) throw error;
-      if (!readySites) throw "Could not get readySites for Cron: " + cron;
+      if (!readySites?.length)
+        throw `Could not get readySites for Cron: '${cron}'`;
 
       const shotProps = { readySites, id, cron, Auth, env };
       await takeShots(shotProps);
@@ -177,10 +178,10 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
 
     //make sure that not more than 5 users pegged to cron to maintain worker limits
   } catch (e) {
-    console.error("Error in getShotUrls: ", e);
+    console.error("Error in takeShots: ", e);
 
     const body = {
-      msg: "Error in getShotUrls: " + JSON.stringify(e?.message || e),
+      msg: "Error in takeShots: " + JSON.stringify(e?.message || e),
     };
     const fetchProps = { Auth, cron, env, body, method: "POST" };
     await Fetch({ ...fetchProps, endpoint: "/setNotification" });
@@ -209,8 +210,8 @@ async function Fetch({ Auth, cron, env, body, endpoint, method }) {
     ...(method != "GET" ? { body: JSON.stringify(body) } : {}),
   }); //this accessible by await req.json() or await req.json().body?
 
-  const data = await res?.json();
-  console.log("In fetch, data from endpoint", { endpoint, Auth, data });
+  const data = await res?.text();
+  console.log("In fetch, return from endpoint: ", { endpoint, data });
   return { Auth, data };
 }
 

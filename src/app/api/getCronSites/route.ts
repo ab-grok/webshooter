@@ -19,9 +19,14 @@ export async function GET(req: Request) {
   } catch (e: any) {
     console.error("Error in api: ", e);
 
-    const msg = `Could not get readySites. ${JSON.stringify(e?.error || e?.message || e)}`;
+    const err = JSON.stringify(e?.error || e?.message || e);
+    const msg = `Could not get readySites. ${err}`;
     const msgData = { msg, danger: true };
+
     await setNotification({ msgData, logError: true });
-    return NextResponse.json({ error: "An error occured" }, { status: 401 });
+    return NextResponse.json(
+      { error: "An error occured: " + err },
+      { status: 401 },
+    );
   }
 }
