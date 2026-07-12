@@ -224,7 +224,7 @@ export async function reactivateCron(safeSD: siteData) {
   if (e3) return { error: e3 };
 
   //handles cronTable.del and userSite.inactive when maxWorkerCrons is reached
-  const { error: e4 } = await updateWorker({ ...reProps });
+  const { error: e4 } = await updateWorker({ ...reProps, cron: safeSD.cron });
 
   return { error: e4 };
 }
@@ -239,7 +239,7 @@ export async function deactivateCron(site: string, cron: string) {
   if (!sS || !sC) return { error: "Unsafe site data!" };
 
   const safeSD = { site: sS, cron: sC };
-  const delCronProps = { safeSD, user, del: true };
+  const delCronProps = { safeSD, user, del: true, cron: sC };
 
   const { error: e1 } = await setSiteInactive({ ...safeSD, user });
   if (e1) return { error: e1 };
