@@ -21,7 +21,7 @@ const db = postgres(process?.env?.DB_CONN, {
 // let db: Sql<{}> = DB(process.env.DB_CONN);
 
 //------> shooterWorker actions
-export async function makeEntry({ shotData }) {
+export async function makeEntry(shotData) {
   //Id used for removing `failed shot` notifications.
   //sets prevId as fileData when duplicate is found.
   try {
