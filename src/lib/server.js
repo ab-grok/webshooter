@@ -174,6 +174,7 @@ export async function getCronSites(cron) {
   try {
     const readySites = [];
     let errLogs = [];
+    let id = Math.random() * 1000000;
     let userInactivePeriod = new Date();
     userInactivePeriod.setMonth(userInactivePeriod.getMonth() - 3);
 
@@ -182,7 +183,7 @@ export async function getCronSites(cron) {
     const cronsData = r1?.[0]?.cD;
     console.log("In getCronSites. cronsData: ", cronsData);
 
-    if (!cronsData || (cronsData.length == 1 && !cronsData[0]?.site)) {
+    if (!cronsData || (cronsData?.length == 1 && !cronsData?.[0]?.site)) {
       //Logs empty cron then del
       const msg = `in getCronSites. Cron schedule '${cron}' missing. Running cleanup!`;
       const eLog = { msgData: { msg }, logError: true };
@@ -214,7 +215,7 @@ export async function getCronSites(cron) {
 
       //if user is unloggd past 3 months: set user sites and cron inactive & deleted;
       if (!lastLog || userInactivePeriod > new Date(lastLog)) {
-        const msg = `User unlogged for 3 months! Cron: '${cron}' on Site: '${site}' and its shots have been purged!`;
+        const msg = `User signed out past 3 months! Cron: '${cron}' on Site: '${site}' and its shots have been purged!`;
         await setNotification({ msgData: { msg, danger: true }, user });
         console.log(msg, lastLog);
 
@@ -259,17 +260,21 @@ export async function getCronSites(cron) {
       }
 
       if (erred) continue; //Skip pushing to readySites if erred;
+
+      //preemptively log failed shot save -- will be removed on successful write;
+      const msg = `Failed shot! Cron '${cron}' on site '${site}' ran on '${formatDate(new Date())}'`;
+      const msgData = { msg, danger: true, id };
+      const { id: id1 } = await setNotification({ msgData, user });
+
+      console.log(
+        `Sent Preemptive shot fail message: preset ID: '${id}', noti ID: '${id1}' `,
+      );
+
       readySites.push({ user, site, range });
     }
 
-    //Accounting for worker timeout scenario -- users get pessimistically notified of failed attempt, this is later removed on successful write.
-    const msg = `Shot failed to save: Cron '${cron}' ran on ${formatDate(new Date())}.`;
-    const user = readySites.map((s) => s.user);
-    const msgData = { msg, danger: true };
-    const { id } = await setNotification({ msgData, user });
-
-    //Erred during loop: Logs error per user.
-    errLogs.forEach((err) => {
+    //Logs per user errors if they exist.
+    errLogs?.forEach((err) => {
       const msgData = { msg: JSON.stringify(err), danger: true };
       setNotification({ msgData, user: err.user, logError: true });
     });

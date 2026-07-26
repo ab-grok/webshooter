@@ -55,7 +55,7 @@ export function ErrDialog() {
             "group/main ring-border absolute top-20 left-1/2 z-5 flex -translate-x-1/2 items-center justify-center rounded-4xl bg-linear-180 p-1 px-8 py-4 font-semibold text-white/80 shadow-md ring-2 shadow-black backdrop-blur-xl",
             errBody?.danger == false
               ? "from-stone-600/10 to-stone-400/20"
-              : "from-red-300/10 to-red-400/20",
+              : "from-red-300/10 to-red-400/20 hover:from-red-300/30 hover:to-red-400/40",
           )}
         >
           <motion.div className="flex flex-col gap-2">
@@ -63,7 +63,7 @@ export function ErrDialog() {
               id="header"
               className={cn(
                 "border-border flex items-center gap-2 truncate rounded-4xl p-2",
-                errBody.danger ? "text-destructive" : "text-white",
+                errBody.danger ? "text-destructive" : "text-white/70",
               )}
             >
               {errBody?.danger == false ? (

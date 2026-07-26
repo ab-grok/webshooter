@@ -3,6 +3,7 @@
 import puppeteer from "@cloudflare/puppeteer";
 import * as jose from "jose";
 
+//Expecting svhedule conflicts -- SHould store schedule time in durable object and prevent another invocation from oppening browser
 // for incoming requests: I send payload (keys) in body for 'delete' call, as array in URL for bulk deletion may exceed the url 2byte limit (correct the actual size limit)
 //for incoming/outgoing requests: I set up jwtSign signing the same secret on both ends (worker + next app), check that it interoperates properly.
 //check that there are no operational deficiencies and check the interoperability of each fetch endpoint and the corresponding route in the next app.
@@ -24,9 +25,9 @@ export default {
       if (!getUrls && !delShot) throw { error: "Invalid search param" };
 
       if (getUrls) {
-        const keysData = reqBody; //this is how you access the body?
+        const keysData = Array.isArray(reqBody) ? reqBody : [];
 
-        if (!keysData.length) throw { error: "Empty keysData array!" };
+        if (!keysData?.length) throw { error: "Empty keysData array!" };
 
         const urlData = [];
         const expiresIn = 3600 * 24 * 7;
@@ -67,7 +68,9 @@ export default {
 
       //await a flatmap of [shot,html] per shotKey deletion
       if (delShot) {
-        const shotKeyArr = reqBody.keys;
+        const shotKeyArr = Array.isArray(reqBody?.keys) ? reqBody.keys : [];
+        if (!shotKeyArr?.length)
+          throw { error: "In DelShot; Empty shotKeysArr!" };
 
         const delPromises = shotKeyArr.flatMap((shotKey) => {
           const htmlKey = shotKey
@@ -103,11 +106,12 @@ export default {
 
       const { Auth, data } = await Fetch(fetchProps);
 
-      console.log("In scheduled", { Auth, data });
+      console.log("In scheduled; Received data from fetch", { data });
       const { readySites, id, error } = data;
+
       if (error) throw error;
       if (!readySites?.length)
-        throw `Could not get readySites for Cron: '${cron}'`;
+        throw `readySites is non-existent or empty: ${JSON.stringify({ readySites, cron })}`;
 
       const shotProps = { readySites, id, cron, Auth, env };
       await takeShots(shotProps);
@@ -123,70 +127,122 @@ export default {
   },
 };
 
+async function launchBrowserWithRetry(env, attempts = 3) {
+  let error;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      console.log(`Launching browser attempt ${attempt}/${attempts}`);
+      return await puppeteer.launch(env.CHROME, {
+        protocolTimeout: 5000,
+      });
+    } catch (err) {
+      error = err;
+      console.error(
+        `In launchBrowserWithRetry: Browser launch attempt ${attempt}/${attempts} failed`,
+        err,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+  if (error) throw "Browser launch failed!";
+}
+
 //function for taking and stroing Shots and storing HTML
 async function takeShots({ readySites, id, cron, Auth, env }) {
+  await new Promise((fn) => setTimeout(fn, Math.random() * 500)); //random wait to prevent collision from incidenting crons
+
   let browser;
   try {
-    browser = await puppeteer.launch(env.CHROME);
+    browser = await launchBrowserWithRetry(env);
 
     console.log("in takeShots", { readySites, id, cron, Auth, env });
-    //loop may break free tier's 10ms CPU time limit. -- eased now since API calls are made to
+
+    //loop may break free tier's 10ms CPU time limit.
     for (const { site, range, user } of readySites) {
       if (!site || !user)
-        throw "Missing params. Site: " + site + ", User: " + user;
+        throw `Missing params; ${JSON.stringify({ site, user })}`;
+
+      console.log("In takeShots > forLoop!");
 
       let page;
       try {
-        page = await browser.newPage();
+        page = await browser?.newPage();
+        if (!page) throw "browser.newPage() failed to initialise!"; //is this proper check for failed page initialisation or perhaps page releases some methods to check for init errors?
         const UA = env.SHOOTER_AGENT; //"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
-        await page.setUserAgent(UA);
+        await page?.setUserAgent(UA);
 
-        const pSite = !site.startsWith("http") ? `https://${site}` : site;
+        const rSite = !site.startsWith("http") ? `https://${site}` : site;
 
-        const stats = await page.goto(pSite);
+        // helper: try to load the page, optionally retry once. Returns pageStats or null on failure.
+        async function loadPageTwice(retry = 0) {
+          const stats = await page?.goto(rSite);
+          if (stats?.status() >= 400) {
+            const tries = retry ? "Second try" : "First try";
+            const msg = `Error in takeShots for Loop: Page broken on ${tries}. Site: '${site}', User: '${user}', Status: ${stats?.status()}`;
+            const props = { Auth, cron, env, body: { msg }, method: "POST" };
+            const fetchProps = { ...props, endpoint: "/setNotification" };
+            console.error(msg);
+            await Fetch(fetchProps);
 
-        if (stats.status() >= 400) {
-          console.error(`in takeShots. Page broken. Status`, stats);
-          //can continue and set notification, or store broken page as is -- storing broken page as is for experimentation (is low html file size regardless).
+            if (!retry) return await loadPageTwice(1);
+            return null;
+          }
+          return stats;
         }
+
+        let m = "In takeshots: for Loop: Right before pageStats: ";
+        console.log(m, { UA, rSite, page });
+
+        const pageStats = await loadPageTwice(); // Can retry multiple times; setnotification time serves as 'page.goto()' timeout;
+        if (!pageStats) {
+          console.error("In takeShots: for Loop: pageStats error: ", pageStats);
+          await page?.close();
+          continue; // skip to next readySite
+        }
+
+        m = "In takeshots: for Loop: After pageStats: ";
+        console.log(m, { UA, rSite, pageStats });
 
         const html = await page.content();
 
         const pageArg = { type: "jpeg", quality: 80, encoding: "binary" };
         const shot = await page.screenshot({ fullPage: true, ...pageArg });
 
+        console.log("In takeShots: for loop: partHtml: ", html.slice(0, 100));
+
         const storeProps = { shot, html, cron, site, user, env };
         const { shotKey, htmlKey } = await storeShot(storeProps);
 
-        //range is impractical in R2 -- cannot reliably probe prev entries for html content. Or can I?
-        //would be possible if there are R2 BUCKET query methods are there besides put, get, delete?
+        console.log("In takeShots: Right after storeShot;");
+
         const shotData = { shotKey, htmlKey, range, site, user, id };
 
         const fetchProps = { cron, Auth, env, endpoint: "/makeEntry" };
         await Fetch({ ...fetchProps, method: "POST", body: shotData });
-      } catch (e) {
-        console.error("Error in takeShot > for loop: ", e);
 
-        const msg = `Error in readySites, Site: ${site}, User: ${user}, Error: ${JSON.stringify(e?.message || e)}`;
+        console.log("In takeShots: after fetch to makeEntry;");
+      } catch (e) {
+        const msg = `Error in TakeShot page, Site: ${site}, User: ${user}, Error: ${JSON.stringify(e?.message || e)}`;
         const fetchProps = { Auth, cron, env, body: { msg }, method: "POST" };
         console.error(msg);
-        await Fetch({ ...fetchProps, endpoint: "/setNotification" }); //Check `src/app/api/setNotification/route.ts` that I access 'msg' correctly.
-      } finally {
+        await Fetch({ ...fetchProps, endpoint: "/setNotification" });
         await page?.close();
       }
     }
 
     //make sure that not more than 5 users pegged to cron to maintain worker limits
   } catch (e) {
-    console.error("Error in takeShots: ", e);
-
-    const body = {
-      msg: "Error in takeShots: " + JSON.stringify(e?.message || e),
-    };
-    const fetchProps = { Auth, cron, env, body, method: "POST" };
-    await Fetch({ ...fetchProps, endpoint: "/setNotification" });
+    const msg = `Error in takeShots: ${JSON.stringify(e?.message || e)}`;
+    const props = { Auth, cron, env, body: { msg }, method: "POST" };
+    const fetchProps = { ...props, endpoint: "/setNotification" };
+    console.error(msg);
+    await Fetch(fetchProps);
   } finally {
-    await browser?.close();
+    try {
+      await browser?.close();
+    } catch (closeErr) {
+      console.error("Error closing browser:", closeErr);
+    }
   }
 }
 
@@ -208,10 +264,22 @@ async function Fetch({ Auth, cron, env, body, endpoint, method }) {
     method,
     headers,
     ...(method != "GET" ? { body: JSON.stringify(body) } : {}),
-  }); //this accessible by await req.json() or await req.json().body?
+  });
 
-  const data = await res?.text();
-  console.log("In fetch, return from endpoint: ", { endpoint, data });
+  // const data = await res.json() //It's all good. I return json.
+
+  let data;
+
+  try {
+    data = await res.json();
+  } catch (e) {
+    console.error("Error in fetch res: ", await res.clone().text());
+  }
+
+  console.log(
+    "In fetch, return from endpoint: ",
+    JSON.stringify({ endpoint, data }),
+  );
   return { Auth, data };
 }
 
@@ -245,9 +313,10 @@ async function storeShot({ shot, html, cron, site, user, env }) {
   const shotKey = `shot/${user}/${sS}_${date}.jpeg`;
   const htmlKey = `html/${user}/${sS}_${date}.html`;
 
+  console.log("In storeShot: ", { date, sS, shotKey, htmlKey });
+
   if (!shot) shot = `Shot failed to save. Cron: ${cron}, site: ${site}`;
 
-  //what's the value of shotReturn here? wondering if I can getSignedUrl.
   const shotReturn = await env.SHOT_BUCKET.put(shotKey, shot, {
     httpMetadata: { contentType: "image/jpeg" },
   });
@@ -255,6 +324,9 @@ async function storeShot({ shot, html, cron, site, user, env }) {
   const htmlReturn = await env.SHOT_BUCKET.put(htmlKey, html, {
     httpMetadata: { contentType: "text/html" },
   });
+
+  const m = "In storeShot; After SHOT_BUCKET put: ";
+  console.log({ shotReturn, htmlReturn });
 
   return { shotKey, htmlKey };
 }
