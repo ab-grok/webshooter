@@ -174,7 +174,7 @@ export async function getCronSites(cron) {
   try {
     const readySites = [];
     let errLogs = [];
-    let id = Math.random() * 1000000;
+    let id = Math.floor(Math.random() * 1000000);
     let userInactivePeriod = new Date();
     userInactivePeriod.setMonth(userInactivePeriod.getMonth() - 3);
 

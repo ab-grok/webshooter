@@ -154,7 +154,6 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
   let browser;
   try {
     browser = await launchBrowserWithRetry(env);
-
     console.log("in takeShots", { readySites, id, cron, Auth, env });
 
     //loop may break free tier's 10ms CPU time limit.
@@ -177,33 +176,31 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
 
         // helper: try to load the page, optionally retry once. Returns pageStats or null on failure.
         async function loadPage(retries = 3) {
-          let stats;
-          for (const retry = 1; retry <= retries; retry++) {
+          for (let retry = 1; retry <= retries; retry++) {
             try {
               const l1 = `In loadPage: loading '${rSite}'. Attempt (${retry}/${retries}) `;
-              console.log(l);
+              console.log(l1);
 
-              const stats = await page?.goto(rSite, { timeout: 60_000 }); //I reckon the 'waitUntil' arg is irrelevant if it times out on set time regardless -- unless there is a specific preference for networkIdle2? ie default 'loadpage' may return true while visual artifacts are still rendering -- can you difine loadpage?
-
-              const delayWhilePageLoads = await new Promise((r) =>
-                setTimeout(r, Math.random() * 2000),
-              ); //is this functionally relevant? I suppose the page is contnuing to run during this wait so yes, funtionally? -- (will remove regardless) ?
+              const stats = await page?.goto(rSite, {
+                timeout: 60_000, //Max time fr page navigation!
+                waitUntil: "networkidle2", //Record success navigation when <= 2 networkcalls in flight.
+              });
 
               const l2 = `In loadPage: page load success! Status: '${stats.status()}'`;
               console.log(l2);
+
+              return stats;
             } catch (e) {
-              const l3 = `In loadPage: Page load error! Status: '${stats.status()}'`;
-              console.error(l3);
+              console.error(`In loadPage: Page load error: '${e}'`);
+              if (retry == retries) throw "Page load failure!";
             }
           }
-          return stats;
         }
 
         let m = "In takeshots: Right before 'loadPage()': ";
         console.log(m, { UA, rSite, page });
 
         const pageStats = await loadPage();
-
         //Notify user of non-puppeteer page load errors
         if (pageStats.status() >= 400) {
           const msg = `Couldn't take shot: Page broken; Site: '${site}', User: '${user}', Status: '${p?.status()}'`;
@@ -213,12 +210,11 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
           const fetchProps = { ...props1, endpoint: "/setNotification" };
 
           console.error(msg);
-
           await Fetch(fetchProps);
-        }
 
-        await page?.close();
-        continue; // skip to next readySite;
+          await page?.close();
+          continue; // skip to next readySite;
+        }
 
         m = "In takeshots: for Loop: After pageStats: ";
         console.log(m, { UA, rSite, pageStats });
@@ -242,19 +238,20 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
 
         console.log("In takeShots: after fetch to makeEntry;");
       } catch (e) {
-        const msg = `Error in TakeShot page, Site: ${site}, User: ${user}, Error: ${JSON.stringify(e?.message || e)}`;
+        const msg = `Error in TakeShots > page, Site: '${site}', User: '${user}', Error: '${JSON.stringify(e?.message || e)}'`;
         const fetchProps = { Auth, cron, env, body: { msg }, method: "POST" };
         console.error(msg);
+
         await Fetch({ ...fetchProps, endpoint: "/setNotification" });
         await page?.close();
       }
     }
-
-    //make sure that not more than 5 users pegged to cron to maintain worker limits
+    //Account for free teir? make sure that not more than 5 users pegged to cron to maintain worker limits
   } catch (e) {
     const msg = `Error in takeShots: ${JSON.stringify(e?.message || e)}`;
     const props = { Auth, cron, env, body: { msg }, method: "POST" };
     const fetchProps = { ...props, endpoint: "/setNotification" };
+
     console.error(msg);
     await Fetch(fetchProps);
   } finally {
