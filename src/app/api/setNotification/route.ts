@@ -11,11 +11,12 @@ export async function POST(req: Request) {
 
     const { payload } = await jose.jwtVerify(token, secret);
 
-    const { msg } = await req.json();
+    const { msg, user } = await req.json();
 
     if (!msg) throw { message: "Worker sent empty 'msg' to setNotification." };
 
-    const noti = { msgData: { msg, danger: true }, logError: true };
+    const u = user ? { user } : { logError: true }; //optionally log to user and not admin;
+    const noti = { msgData: { msg, danger: true }, ...u };
 
     const { error } = await setNotification(noti);
     if (error) throw { error };

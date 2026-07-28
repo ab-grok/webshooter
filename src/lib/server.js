@@ -36,7 +36,7 @@ export async function makeEntry(shotData) {
 
     if (!sS)
       throw {
-        error: "in makeEntry. Site unsafe: " + JSON.stringify({ user, site }),
+        error: `in makeEntry: Unsafe site; site '${site}', user: '${user}'`,
       };
 
     const shotCol = db(sS + "_shot_key");
@@ -62,7 +62,7 @@ export async function makeEntry(shotData) {
 
     const msgData = { msg: JSON.stringify(e), danger: true };
     const noti = { msgData, logError: true };
-    setNotification(noti); //I reckon unawait it does not block program flow but executes regardless?
+    setNotification(noti); //I reckon when unawaited, to not block program flow, it executes regardless?
     return { error: "Error in makeEntry: " + e.error || "" };
   }
 }

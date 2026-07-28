@@ -168,47 +168,67 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
       try {
         page = await browser?.newPage();
         if (!page) throw "browser.newPage() failed to initialise!"; //is this proper check for failed page initialisation or perhaps page releases some methods to check for init errors?
+
         const UA = env.SHOOTER_AGENT; //"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
-        await page?.setUserAgent(UA);
+        await page.setUserAgent(UA);
+        await page.setViewport({ width: 1920, height: 1080 });
 
         const rSite = !site.startsWith("http") ? `https://${site}` : site;
 
         // helper: try to load the page, optionally retry once. Returns pageStats or null on failure.
-        async function loadPageTwice(retry = 0) {
-          const stats = await page?.goto(rSite);
-          if (stats?.status() >= 400) {
-            const tries = retry ? "Second try" : "First try";
-            const msg = `Error in takeShots for Loop: Page broken on ${tries}. Site: '${site}', User: '${user}', Status: ${stats?.status()}`;
-            const props = { Auth, cron, env, body: { msg }, method: "POST" };
-            const fetchProps = { ...props, endpoint: "/setNotification" };
-            console.error(msg);
-            await Fetch(fetchProps);
+        async function loadPage(retries = 3) {
+          let stats;
+          for (const retry = 1; retry <= retries; retry++) {
+            try {
+              const l1 = `In loadPage: loading '${rSite}'. Attempt (${retry}/${retries}) `;
+              console.log(l);
 
-            if (!retry) return await loadPageTwice(1);
-            return null;
+              const stats = await page?.goto(rSite, { timeout: 60_000 }); //I reckon the 'waitUntil' arg is irrelevant if it times out on set time regardless -- unless there is a specific preference for networkIdle2? ie default 'loadpage' may return true while visual artifacts are still rendering -- can you difine loadpage?
+
+              const delayWhilePageLoads = await new Promise((r) =>
+                setTimeout(r, Math.random() * 2000),
+              ); //is this functionally relevant? I suppose the page is contnuing to run during this wait so yes, funtionally? -- (will remove regardless) ?
+
+              const l2 = `In loadPage: page load success! Status: '${stats.status()}'`;
+              console.log(l2);
+            } catch (e) {
+              const l3 = `In loadPage: Page load error! Status: '${stats.status()}'`;
+              console.error(l3);
+            }
           }
           return stats;
         }
 
-        let m = "In takeshots: for Loop: Right before pageStats: ";
+        let m = "In takeshots: Right before 'loadPage()': ";
         console.log(m, { UA, rSite, page });
 
-        const pageStats = await loadPageTwice(); // Can retry multiple times; setnotification time serves as 'page.goto()' timeout;
-        if (!pageStats) {
-          console.error("In takeShots: for Loop: pageStats error: ", pageStats);
-          await page?.close();
-          continue; // skip to next readySite
+        const pageStats = await loadPage();
+
+        //Notify user of non-puppeteer page load errors
+        if (pageStats.status() >= 400) {
+          const msg = `Couldn't take shot: Page broken; Site: '${site}', User: '${user}', Status: '${p?.status()}'`;
+
+          const props0 = { Auth, cron, env, method: "POST" };
+          const props1 = { body: { msg, user }, ...props0 };
+          const fetchProps = { ...props1, endpoint: "/setNotification" };
+
+          console.error(msg);
+
+          await Fetch(fetchProps);
         }
+
+        await page?.close();
+        continue; // skip to next readySite;
 
         m = "In takeshots: for Loop: After pageStats: ";
         console.log(m, { UA, rSite, pageStats });
 
         const html = await page.content();
 
-        const pageArg = { type: "jpeg", quality: 80, encoding: "binary" };
+        const pageArg = { type: "jpeg", quality: 90, encoding: "binary" };
         const shot = await page.screenshot({ fullPage: true, ...pageArg });
 
-        console.log("In takeShots: for loop: partHtml: ", html.slice(0, 100));
+        console.log("In takeShots: Shot taken; partHtml: ", html.slice(0, 100));
 
         const storeProps = { shot, html, cron, site, user, env };
         const { shotKey, htmlKey } = await storeShot(storeProps);
@@ -216,8 +236,8 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
         console.log("In takeShots: Right after storeShot;");
 
         const shotData = { shotKey, htmlKey, range, site, user, id };
-
         const fetchProps = { cron, Auth, env, endpoint: "/makeEntry" };
+
         await Fetch({ ...fetchProps, method: "POST", body: shotData });
 
         console.log("In takeShots: after fetch to makeEntry;");
