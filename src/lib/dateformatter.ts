@@ -58,21 +58,51 @@ export function isDate(date: any): date is Date {
   return date instanceof Date && !isNaN(date.valueOf());
 }
 
+// AWS Scheduler uses: minute hour day-of-month month day-of-week year.
+
+/*
+ * minute  0-59
+ * hours   0-23
+ * DayOfM  1-31
+ * Month   1-12
+ * DayOfW  1-7
+ * Year    1970-2199
+ */
+
+// In all crons either 'day of week' or 'day of month' must be '?' -- account for this
 export function cronToText(cron: string) {
   //transforms crons into text. By iterating over the cron fields appending fillers like "from", "every" depending on field format
   if (!safeCron(cron)) return { error: "Invalid Cron" };
 
-  const [mm, hh, DD, MM, WW] = cron.trim().split(/\s+/);
+  const [mm, hh, DD, MM, WW, YY] = cron.trim().split(/\s+/);
   const mmText = cronFieldText(mm, "minute");
   const hhText = cronFieldText(hh, "hour");
   const DDText = cronFieldText(DD, "day");
   const MMText = cronFieldText(MM, "months");
   const WWText = cronFieldText(WW, "weekday");
+  const YYText = YY == "*" || YY == "?" ? "" : cronFieldText(YY, "year");
 
-  const parts = [mmText, hhText, DDText, WWText, MMText];
-  // const text = parts.join(" - ");
-  const text = parts.join(" - ");
+  const parts = [mmText, hhText, DDText, WWText, MMText, YYText].filter(
+    Boolean,
+  );
+  const text = parts.join(", ");
   return text;
+}
+
+// Scheduler-safe name generator (needed for creating Schedulers)
+export function cronNameFromValue(cron: string) {
+  const value = cron.trim();
+  if (!safeCron(value)) return "";
+
+  const encoded = value
+    .replace(/\*/g, "all")
+    .replace(/\?/g, "any")
+    .replace(/\//g, "step")
+    .replace(/,/g, "list")
+    .replace(/-/g, "to")
+    .replace(/\s+/g, "_");
+
+  return encoded.slice(0, 64);
 }
 
 function cronFieldText(cronField: string, timeUnit: string) {
@@ -132,9 +162,9 @@ function cronFieldText(cronField: string, timeUnit: string) {
 
     for (const [i, item] of listItems.entries()) {
       listStrings.push(
-        dString(field, i, "list") ||
-          stepString(field, i, "list") ||
-          rangeString(field, i, "list"),
+        dString(item, i, "list") ||
+          stepString(item, i, "list") ||
+          rangeString(item, i, "list"),
       );
     }
 

@@ -18,12 +18,17 @@ export type cursor = { id: number; next?: boolean };
 
 export type timePeriod = { from: Date; to?: Date };
 
-export type isAdmin = null | "Bronze" | "Silver" | "Gold";
+export type tier =
+  | "Regular"
+  | "Premium"
+  | "Premium Plus"
+  | "Moderator"
+  | "Admin";
 
 export type userData = {
   user?: string;
   joined?: string;
-  isAdmin?: isAdmin;
+  memberTier?: tier;
   maxCrons?: number;
   activeSites?: userSites;
   userSites?: userSites;

@@ -33,6 +33,7 @@ import { sha256 } from "@oslojs/crypto/sha2";
 import { downloadProps, range, userData } from "./types";
 import * as jose from "jose";
 import { safeCron, safeRange, safeSite } from "./utils";
+import { cronNameFromValue } from "./dateformatter";
 
 //---> session managment
 export async function getCookie(name: "session" | "analytics") {
@@ -61,12 +62,13 @@ async function deleteCookie(name: "session" | "analytics") {
 }
 
 export async function validateSession() {
+  //memberTier: tier
   const cookie = await getCookie("session");
   if (!cookie) return { error: "Invalid session" };
 
   const token = (await getToken(cookie))!;
 
-  const { user, joined, isAdmin } = await getSession({ token });
+  const { user, joined, memberTier } = await getSession({ token });
   if (!user) return { error: "Unknown user" };
 
   //rateLimit is used to renew cookie expiration
@@ -81,7 +83,7 @@ export async function validateSession() {
     if (e1) console.error({ error: e1 });
     else await setCookie({ name: "session", cookie, expires });
   }
-  return { user, joined, isAdmin };
+  return { user, joined, memberTier };
 }
 
 //--------> User Account Management
@@ -130,13 +132,13 @@ export async function signUser({ username, password, siteData }: signUser) {
 export async function getUserData(): Promise<userData> {
   // here I'll collect all the info needed to display in frontend for an active session
   // notifications: InfiniteQuery; notepad, will have own functions.
-  const { user, joined, isAdmin } = await validateSession();
+  const { user, joined, memberTier } = await validateSession();
 
   if (!user) return { error: "In getUserData, Unknown user" };
 
   const { maxCrons, activeSites, userSites, error } = await getActiveSites();
 
-  return { user, joined, maxCrons, activeSites, userSites, isAdmin, error };
+  return { user, joined, maxCrons, activeSites, userSites, memberTier, error };
 }
 
 export async function getNotepad(update: "update" | undefined) {}
@@ -403,6 +405,8 @@ async function getSafeSD(safeSD: siteData) {
   range = safeRange(range!);
 
   if (!site || !cron) return null;
+  const cronName = cronNameFromValue(cron);
+  if (!cronName) return null;
   return { site, cron, range };
 }
 

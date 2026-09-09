@@ -117,6 +117,12 @@ NODE_ENV=development
 
 ---
 
+## Future Implementation / Features
+
+1. **Web Log in** : Prompting for optional Browser Cookies per schedule/profile can help in webpage 'Sign In Required' cases. Can Implement.
+
+---
+
 ## Contributing
 
 - Fork the repo, create a topic branch and open a PR.

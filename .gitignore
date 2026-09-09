@@ -35,6 +35,10 @@ yarn-error.log*
 wrangler*
 .dev.vars
 .open-next
+lambda-config* 
+
+# Secret folders
+aws
 
 # vercel
 .vercel

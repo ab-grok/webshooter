@@ -174,6 +174,17 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
 
         const rSite = !site.startsWith("http") ? `https://${site}` : site;
 
+        const setCookie = await page.setCookie({
+          name: "country",
+          value: "US",
+          domain: site,
+        });
+
+        const pageHeaders = await page.setExtraHTTPHeaders({
+          "Accept-Language": "en-US,en;q=0.9",
+        });
+
+        console.log(`In takeShots`, JSON.stringify({ setCookie, pageHeaders }));
         // helper: try to load the page, optionally retry once. Returns pageStats or null on failure.
         async function loadPage(retries = 3) {
           for (let retry = 1; retry <= retries; retry++) {
@@ -214,6 +225,50 @@ async function takeShots({ readySites, id, cron, Auth, env }) {
 
           await page?.close();
           continue; // skip to next readySite;
+        }
+
+        const geo = await page.evaluate(async () => {
+          const res = await fetch("https://ipapi.co/json/");
+          return await res.json();
+        });
+
+        console.log("GeoLocation: ", "\n", JSON.stringify(geo), "\n");
+
+        //accept cookies or dismiss dialogs
+
+        const ModalButton = [
+          "Agree",
+          "Accept",
+          "OK",
+          "Consent",
+          "Allow",
+          "Yes",
+          "Got it",
+          "Continue",
+          "Enable",
+          "Save",
+          "Close",
+          "Dismiss",
+        ];
+
+        for (let i = 0; i < ModalButton.length; i++) {
+          try {
+            const selector = await page.waitForSelector(
+              `button:has-text("${ModalButton[i]}")`,
+              { timeout: 5000 },
+            );
+
+            const clicked = await page.click(
+              `button:has-text("${ModalButton[i]}")`,
+            );
+
+            console.log("Modal clicked; Selector: ", selector);
+            await new Promise((r) => setTimeout(r, 3000));
+            break;
+          } catch (e) {
+            console.log("Modal button not found: ", ModalButton[i]);
+            console.log(e);
+          }
         }
 
         m = "In takeshots: for Loop: After pageStats: ";
@@ -271,7 +326,6 @@ async function Fetch({ Auth, cron, env, body, endpoint, method }) {
   console.log("in Fetch", { Auth, cron, body, env, endpoint, method });
   !Auth && (Auth = await createJWT({ cron, env }));
 
-  console.log("In Fetch after Auth reassignmment", { Auth });
   const headers = {
     Authorization: Auth,
     "Content-Type": "application/json",
@@ -286,11 +340,10 @@ async function Fetch({ Auth, cron, env, body, endpoint, method }) {
   // const data = await res.json() //It's all good. I return json.
 
   let data;
-
   try {
     data = await res.json();
   } catch (e) {
-    console.error("Error in fetch res: ", await res.clone().text());
+    console.error("Error in fetch; res: ", await res.clone().text());
   }
 
   console.log(
@@ -327,23 +380,20 @@ async function storeShot({ shot, html, cron, site, user, env }) {
   date = date.replace(/\s+/, "_").replace(/:/, ".");
   const sS = site.replace(/[\.]+/g, "_").replace(/\//g, "");
 
-  const shotKey = `shot/${user}/${sS}_${date}.jpeg`;
-  const htmlKey = `html/${user}/${sS}_${date}.html`;
+  const shotKey = `${user}/shot/${sS}_${date}.jpeg`;
+  const htmlKey = `${user}/html/${sS}_${date}.html`;
 
-  console.log("In storeShot: ", { date, sS, shotKey, htmlKey });
+  console.log("In storeShot: ", { shotKey, htmlKey });
 
   if (!shot) shot = `Shot failed to save. Cron: ${cron}, site: ${site}`;
 
-  const shotReturn = await env.SHOT_BUCKET.put(shotKey, shot, {
+  await env.SHOT_BUCKET.put(shotKey, shot, {
     httpMetadata: { contentType: "image/jpeg" },
   });
 
-  const htmlReturn = await env.SHOT_BUCKET.put(htmlKey, html, {
+  await env.SHOT_BUCKET.put(htmlKey, html, {
     httpMetadata: { contentType: "text/html" },
   });
-
-  const m = "In storeShot; After SHOT_BUCKET put: ";
-  console.log({ shotReturn, htmlReturn });
 
   return { shotKey, htmlKey };
 }

@@ -58,17 +58,17 @@ function generateCron(config: cronConfig): string {
 
   switch (unit) {
     case "minutes":
-      return `*/${value} * * * *`;
+      return `*/${value} * ? * * *`;
     case "hours":
-      return `0 */${value} * * *`;
+      return `0 */${value} ? * * *`;
     case "days":
-      return `0 0 */${value} * *`;
+      return `0 0 */${value} * ? *`;
     case "weeks":
-      return `0 0 * * ${value}`; // Run on specific day of week
+      return `0 0 ? * ${value} *`; // Run on specific day of week
     case "months":
-      return `0 0 1 */${value} *`;
+      return `0 0 1 */${value} ? *`;
     default:
-      return "0 * * * *"; // Default: every hour
+      return "0 * ? * * *"; // Default: every hour
   }
 }
 

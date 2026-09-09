@@ -33,12 +33,17 @@ export function safeSite(site: string, noDots?: string) {
 
 export function safeCron(cron: string) {
   try {
-    function timeRange(val: number, unit: number) {
-      const startingVal = unit == 12 || unit == 7 || unit == 31 ? 1 : 0;
+    function timeRange(val: number, unit: number, startingVal = 0) {
       return val >= startingVal && val <= unit;
     }
 
-    function validateCronField(cF: string, unit: number) {
+    function validateCronField(
+      cF: string,
+      unit: number,
+      allowQuestion: boolean,
+      startingVal: number,
+    ) {
+      if (allowQuestion && cF == "?") return true;
       // *(/d)? | d(-d)? (,d/d)? ,d(-d)* (,d/d)?;
       if (
         !/^((\*|\d+)(\/\d+)?|\d+(-\d+)?(,(\d+(-\d+)?))*(,\d+\/\d+)?)$/.test(cF)
@@ -50,17 +55,22 @@ export function safeCron(cron: string) {
       const cFLevel2 = cFLevel1.flatMap((cF) => cF.split(/[/-]/)); //handles range, step in list.
       const cFDigits = cFLevel2.filter((f) => f != "*" && f != ""); //removes *
 
-      return cFDigits.every((f) => timeRange(Number(f), unit)); //checks the digit that it's within timeUnit bounds;
+      return cFDigits.every((f) => timeRange(Number(f), unit, startingVal));
     }
 
-    const units = [59, 23, 31, 12, 7];
+    const units = [59, 23, 31, 12, 7, 2199];
 
-    const cronFields = cron.split(/\s+/);
-    if (cronFields.length != 5) throw "Incomplete cron!";
+    const cronFields = cron.trim().split(/\s+/);
+    if (cronFields.length != 6) throw "Cron must contain six fields!";
 
-    cronFields.forEach((c, i) => validateCronField(c, units[i])); //throws if a field is invalid, true??
+    const startingValues = [0, 0, 1, 1, 1, 1970];
+    cronFields.forEach((c, i) =>
+      validateCronField(c, units[i], i == 2 || i == 4, startingValues[i]),
+    );
+    if ((cronFields[2] == "?") == (cronFields[4] == "?"))
+      throw "Exactly one of day-of-month or day-of-week must be '?'.";
 
-    return cron;
+    return cron.trim();
   } catch (e) {
     console.error("Safecron error: ", e);
     return "";
