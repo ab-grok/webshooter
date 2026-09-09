@@ -10,11 +10,10 @@ export async function GET(req: Request) {
     const secret = new TextEncoder().encode(process?.env?.JWT_SECRET);
 
     const { payload } = await jose.jwtVerify(token, secret);
-    const { cronName } = payload;
-    if (typeof cronName !== "string" || !cronName)
-      throw { error: "Missing cronName" };
+    const { cron } = payload;
+    if (typeof cron !== "string" || !cron) throw { error: "Missing cronName" };
 
-    const { error: e, readySites, id } = await getCronSites(cronName);
+    const { error: e, readySites, id } = await getCronSites(cron);
     if (e) throw { error: e };
 
     return NextResponse.json({ readySites, id });

@@ -170,7 +170,7 @@ async function deleteR2Shot(shotKeysArr) {
   }
 }
 
-export async function getCronSites(cron) {
+export async function getCronSites(cronValue) {
   //called from worker -- gets readySites (sites on cron schedule), runs cron cleanup for users whose lastLog > 3mos.
   try {
     const readySites = [];
@@ -180,8 +180,8 @@ export async function getCronSites(cron) {
     userInactivePeriod.setMonth(userInactivePeriod.getMonth() - 3);
 
     const r1 =
-      await db`select cron, "cronData" as "cD" from private.crons where cron ->> 'cronValue' = ${cron}`;
-    const { cron, cronData } = r1?.[0] || {};
+      await db`select cron, "cronData" as "cD" from private.crons where cron ->> 'cronValue' = ${cronValue}`;
+    const { cron, cronData } = r1[0] || {};
     console.log("In getCronSites. cronData: ", cronData);
 
     if (!cronData?.length || (cronData?.length == 1 && !cronData?.[0]?.site)) {
