@@ -179,11 +179,11 @@ export async function getCronSites(cronValue) {
     let userInactivePeriod = new Date();
     userInactivePeriod.setMonth(userInactivePeriod.getMonth() - 3);
 
-    const [{ cron, cronData }] =
+    const [{ cron, cD }] =
       await db`select cron, "cronData" as "cD" from private.crons where cron ->> 'cronValue' = ${cronValue}`;
-    console.log("In getCronSites. ", JSON.stringify({ cron, cronData }));
+    console.log("In getCronSites. ", JSON.stringify({ cron, cD }));
 
-    if (!cronData?.length || (cronData?.length == 1 && !cronData[0]?.site)) {
+    if (!cD?.length || (cD?.length == 1 && !cD[0]?.site)) {
       //cronData is empty; Logs and deletes
       const msg = `in getCronSites. Cron schedule '${cron}' does not exist or has no sites. Running cleanup!`;
       const eLog = { msgData: { msg }, logError: true };
@@ -203,7 +203,7 @@ export async function getCronSites(cronValue) {
     }
 
     //loops over cronData retreiving siteData per userCron (as cronData[] entries)
-    for (const [i, { site, range, user }] of cronData.entries()) {
+    for (const [i, { site, range, user }] of cD.entries()) {
       let erred;
 
       const r2 =
