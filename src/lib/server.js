@@ -179,14 +179,13 @@ export async function getCronSites(cronValue) {
     let userInactivePeriod = new Date();
     userInactivePeriod.setMonth(userInactivePeriod.getMonth() - 3);
 
-    const r1 =
+    const [{ cron, cronData }] =
       await db`select cron, "cronData" as "cD" from private.crons where cron ->> 'cronValue' = ${cronValue}`;
-    const { cron, cronData } = r1[0] || {};
     console.log("In getCronSites. cronData: ", cronData);
 
-    if (!cronData?.length || (cronData?.length == 1 && !cronData?.[0]?.site)) {
+    if (!cronData?.length || (cronData?.length == 1 && !cronData[0]?.site)) {
       //cronData is empty; Logs and deletes
-      const msg = `in getCronSites. Cron schedule '${cron}' does not exist. Running cleanup!`;
+      const msg = `in getCronSites. Cron schedule '${cron}' does not exist or has no sites. Running cleanup!`;
       const eLog = { msgData: { msg }, logError: true };
       setNotification(eLog);
       console.error(msg);
@@ -195,8 +194,9 @@ export async function getCronSites(cronValue) {
 
       const updW = { user: "Cleaner", cron, del: true };
 
-      const { error } = await updateWorker(updW);
-      if (error) throw { error };
+      console.error(`in getCronSites. Tried to call updateWorker!`);
+      // const { error } = await updateWorker(updW);
+      // if (error) throw { error };
 
       console.log(`in getCronSites. Cron: '${cron}' cleaned!`);
       return { error: null };
@@ -229,8 +229,9 @@ export async function getCronSites(cronValue) {
 
         let delWorkerErr;
         if (delWorker) {
-          const { error: e1 } = await updateWorker({ ...safeSD, del: true });
-          delWorkerErr = e1;
+          console.error("Tried to call updateWorker");
+          // const { error: e1 } = await updateWorker({ ...safeSD, del: true });
+          // delWorkerErr = e1;
         }
 
         if (delSitesErr || delCronErr || delWorkerErr) {
