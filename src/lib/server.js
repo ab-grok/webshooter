@@ -181,7 +181,7 @@ export async function getCronSites(cronValue) {
 
     const [{ cron, cronData }] =
       await db`select cron, "cronData" as "cD" from private.crons where cron ->> 'cronValue' = ${cronValue}`;
-    console.log("In getCronSites. cronData: ", cronData);
+    console.log("In getCronSites. ", JSON.stringify({ cron, cronData }));
 
     if (!cronData?.length || (cronData?.length == 1 && !cronData[0]?.site)) {
       //cronData is empty; Logs and deletes
