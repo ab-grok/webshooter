@@ -183,14 +183,16 @@ export async function getCronSites(cronValue) {
       await db`select cron, "cronData" as "cD" from private.crons where cron ->> 'cronValue' = ${cronValue}`;
     console.log("In getCronSites. ", JSON.stringify({ cron, cD }));
 
+    const { cronValue } = cron || {};
+
     if (!cD?.length || (cD?.length == 1 && !cD[0]?.site)) {
       //cronData is empty; Logs and deletes
-      const msg = `in getCronSites. Cron schedule '${cron}' does not exist or has no sites. Running cleanup!`;
+      const msg = `in getCronSites. Cron schedule '${cronValue}' does not exist or has no sites. Running cleanup!`;
       const eLog = { msgData: { msg }, logError: true };
       setNotification(eLog);
       console.error(msg);
 
-      await db`delete from private.crons where cron ->> 'cronValue' = ${cron}`;
+      await db`delete from private.crons where cron ->> 'cronValue' = ${cronValue}`;
 
       const updW = { user: "Cleaner", cron, del: true };
 
@@ -198,7 +200,7 @@ export async function getCronSites(cronValue) {
       // const { error } = await updateWorker(updW);
       // if (error) throw { error };
 
-      console.log(`in getCronSites. Cron: '${cron}' cleaned!`);
+      console.log(`in getCronSites. Cron: '${cronValue}' cleaned!`);
       return { error: null };
     }
 
@@ -217,11 +219,11 @@ export async function getCronSites(cronValue) {
 
       //if user is unloggd past 3 months: set user sites and cron inactive & deleted;
       if (!lastLog || userInactivePeriod > new Date(lastLog)) {
-        const msg = `User signed out over 3 months! Cron: '${cron}' on Site: '${site}' and its shots have been purged!`;
+        const msg = `User signed out over 3 months! Cron: '${cronValue}' on Site: '${site}' and its shots have been purged!`;
         setNotification({ msgData: { msg, danger: true }, user });
         console.log(msg, lastLog);
 
-        const safeSD = { site, cron, range, user };
+        const safeSD = { site, cron: cronValue, range, user };
         const updCron = { safeSD, user, del: true };
 
         const { error: delSitesErr } = await setSiteInactive(safeSD);
@@ -264,13 +266,13 @@ export async function getCronSites(cronValue) {
 
       if (erred) continue; //Skip pushing to readySites if erred;
 
-      //preemptively log failed shoot -- will be removed on successful write;
-      const msg = `Failed shoot! Cron '${cron}' on site '${site}' ran on '${formatDate(new Date())}'`;
+      //preemptively log failed shot -- will be removed on successful write;
+      const msg = `Failed shot! Cron '${cron}' on site '${site}' ran on '${formatDate(new Date())}'`;
       const msgData = { msg, danger: true, id };
       const { id: id1 } = await setNotification({ msgData, user });
 
       console.log(
-        `Sent Preemptive 'failed shoot' message: set ID: '${id}', noti ID: '${id1}' `,
+        `Sent Preemptive 'failed shot' message: set ID: '${id}', noti ID: '${id1}' `,
       );
 
       readySites.push({ user, site, range });
