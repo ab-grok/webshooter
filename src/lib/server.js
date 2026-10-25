@@ -208,9 +208,8 @@ export async function getCronSites(cronValue) {
     for (const [i, { site, range, user }] of cD.entries()) {
       let erred;
 
-      const r2 =
+      const [{ lastLog }] =
         await db`select s."lastLog" from private.users u inner join private.sessions s on u.uuid = s.uuid where u.username = ${user} `;
-      const lastLog = r2?.[0]?.lastLog;
 
       console.log(`in getCronSites; cronData index: : ${i}`, {
         user,
