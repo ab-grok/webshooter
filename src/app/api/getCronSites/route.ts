@@ -17,7 +17,7 @@ export async function GET(req: Request) {
     console.log("In getCronSites, right before function call: ", p);
 
     const { error: e, readySites, id } = await getCronSites(cron);
-    if (e) throw { error: e };
+    if (e) throw e;
 
     return NextResponse.json({ readySites, id });
   } catch (e: any) {
