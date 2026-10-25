@@ -11,7 +11,8 @@ export async function POST(req: Request) {
 
     const { payload } = await jose.jwtVerify(token, secret);
 
-    const shotData = await req.json();
+    const res = await req.json();
+    const shotData = JSON.parse(res);
     if (!shotData.user || !shotData.site) throw "Missing shotData params!";
 
     //shotData : {htmlKey, shotKey, user, site, range, id}

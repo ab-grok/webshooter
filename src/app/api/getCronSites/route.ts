@@ -13,6 +13,9 @@ export async function GET(req: Request) {
     const { cron } = payload;
     if (typeof cron !== "string" || !cron) throw { error: "Missing cronName" };
 
+    const p = { payload, cron };
+    console.log("In getCronSites, right before function call: ", p);
+
     const { error: e, readySites, id } = await getCronSites(cron);
     if (e) throw { error: e };
 
@@ -20,7 +23,7 @@ export async function GET(req: Request) {
   } catch (e: any) {
     console.error("Error in api: ", e);
 
-    const err = JSON.stringify(e?.error || e?.message || e);
+    const err = JSON.stringify(e);
     const msg = `Could not get readySites. ${err}`;
     const msgData = { msg, danger: true };
 
