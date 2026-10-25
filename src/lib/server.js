@@ -10,6 +10,7 @@ import { tier, unviewedType, shotData, downloadProps } from "./types";
 import { createCookie, createJWT, getToken } from "./actions";
 import { cronNameFromValue, formatDate, isDate } from "./dateformatter";
 import { safeSite } from "./utils";
+import { L } from "node_modules/@upstash/redis/error-8y4qG0W2.mjs";
 
 const db = postgres(process?.env?.DB_CONN, {
   debug: (connection, query, params) => {
@@ -181,11 +182,14 @@ export async function getCronSites(cronValue) {
 
     const [{ cron, cD }] =
       await db`select cron, "cronData" as "cD" from private.crons where cron ->> 'cronValue' = ${cronValue}`;
-    console.log("In getCronSites. ", JSON.stringify({ cron, cD }));
+
+    const l = "In getCronSites. Stringified:  ";
+    console.log("In getCronSites. ", { cron, cD });
+    console.log(l, JSON.stringify({ cron, cD }));
 
     const { cronValue } = cron || {};
 
-    if (!cD?.length || (cD?.length == 1 && !cD[0]?.site)) {
+    if (!cD?.length || (cD?.length == 1 && !cD?.[0]?.site)) {
       //cronData is empty; Logs and deletes
       const msg = `in getCronSites. Cron schedule '${cronValue}' does not exist or has no sites. Running cleanup!`;
       const eLog = { msgData: { msg }, logError: true };
@@ -205,7 +209,7 @@ export async function getCronSites(cronValue) {
     }
 
     //loops over cronData retreiving siteData per userCron (as cronData[] entries)
-    for (const [i, { site, range, user }] of cD.entries()) {
+    for (const [i, { site, range, user }] of cD?.entries()) {
       let erred;
 
       const [{ lastLog }] =
