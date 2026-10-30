@@ -10,7 +10,6 @@ import { tier, unviewedType, shotData, downloadProps } from "./types";
 import { createCookie, createJWT, getToken } from "./actions";
 import { cronNameFromValue, formatDate, isDate } from "./dateformatter";
 import { safeSite } from "./utils";
-import { L } from "node_modules/@upstash/redis/error-8y4qG0W2.mjs";
 
 const db = postgres(process?.env?.DB_CONN, {
   debug: (connection, query, params) => {
