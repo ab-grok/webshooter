@@ -23,7 +23,8 @@ export async function GET(req: Request) {
   } catch (e: any) {
     console.error("Error in api: ", e);
 
-    const err = JSON.stringify(e);
+    // const err = JSON.stringify(e);
+    const err = e;
     const msg = `Could not get readySites. ${err}`;
     const msgData = { msg, danger: true };
 

@@ -46,8 +46,10 @@ export async function makeEntry(shotData) {
     // const prevId = await entryExists({ htmlData, user });
     // const updHtml = prevId ? prevId : html;
 
-    const [{ id: id1 }] =
+    const [res1] =
       await db`insert into public.${u} (${shotCol}, ${htmlCol}) values (${shotKey}, ${htmlKey}) returning id`;
+
+    const { id: id1 } = res1 || {};
 
     if (!id1) throw { error: "in makeEntry. insert failed!" };
 
@@ -179,14 +181,14 @@ export async function getCronSites(cronValue) {
     let userInactivePeriod = new Date();
     userInactivePeriod.setMonth(userInactivePeriod.getMonth() - 3);
 
-    const [{ cron, cD }] =
+    const [res1] =
       await db`select cron, "cronData" as "cD" from private.crons where cron ->> 'cronValue' = ${cronValue}`;
+
+    const { cron, cD } = res1 || {};
 
     const l = "In getCronSites. Stringified:  ";
     console.log("In getCronSites. ", { cron, cD });
     console.log(l, JSON.stringify({ cron, cD }));
-
-    const { cronValue } = cron || {};
 
     if (!cD?.length || (cD?.length == 1 && !cD?.[0]?.site)) {
       //cronData is empty; Logs and deletes
@@ -211,8 +213,10 @@ export async function getCronSites(cronValue) {
     for (const [i, { site, range, user }] of cD?.entries()) {
       let erred;
 
-      const [{ lastLog }] =
+      const [res2] =
         await db`select s."lastLog" from private.users u inner join private.sessions s on u.uuid = s.uuid where u.username = ${user} `;
+
+      const { lastLog } = res2 || {};
 
       console.log(`in getCronSites; cronData index: : ${i}`, {
         user,
@@ -417,7 +421,9 @@ export async function updateCronTable({ safeSD, user, del }) {
     const cronName = cronNameFromValue(cronValue);
     const cronData = { user, site, ...(range ? { range } : {}) };
 
-    const [{ count }] = await db`select count(cron) from private.crons`;
+    const [res1] = await db`select count(cron) from private.crons`;
+    const { count } = res1 || {};
+
     const cronCount = count;
 
     //check app crons;
@@ -431,11 +437,13 @@ export async function updateCronTable({ safeSD, user, del }) {
     }
 
     //App crons > 1; Check for existing same cron
-    const [{ cron }] =
+    const [res2] =
       await db`select cron from private.crons where cron ->> 'cronValue' = ${cronValue}`;
-    const [{ maxCrons }] =
+    const [res3] =
       await db`select "maxCrons" from private.settings where id = 1`;
 
+    const { cron } = res2 || {};
+    const { maxCrons } = res3 || {};
     const sameCron = cron;
     const canAddCron = cronCount < (maxCrons || 50);
 
@@ -455,8 +463,10 @@ export async function updateCronTable({ safeSD, user, del }) {
       return { updWorker: true };
     } else if (del) {
       //deleting an existing cron
-      const [{ cronData }] =
+      const [res4] =
         await db`update private.crons set "cronData" = array(select c from unnest("cronData") as c where not (c ->> 'site' = ${site} and c ->> 'user' = ${user})) where cron ->> 'cronValue' = ${cronValue} returning "cronData"`;
+
+      const { cronData } = res4 || {};
 
       if (!cronData?.length || (cronData?.length == 1 && !cronData[0])) {
         //no more sites in cron schedule;
@@ -535,8 +545,9 @@ export async function updateWorker({ cron, user, del }) {
 
       //Checking maxCrons limit before inserting cron -- should be safe after updateCronSites (pipline requsite for adding crons) -- still check.
       //Better -- should check worker crons length instead. as true indication of worker cron limit.
-      const [{ maxCrons }] =
+      const [res1] =
         await db`select "maxCrons" from private.settings where id = 1`;
+      const { maxCrons } = res1 || {};
       const schedulesLength = worker.result?.schedules?.length;
       if (schedulesLength >= maxCrons)
         throw { error: "worker maxCrons reached." };
@@ -1025,8 +1036,9 @@ export async function deleteUser(user, delPass) {
       // await db`update private.users set "deletionAttempt" = (case when "deletionAttempt" is not null then "deletionAttempt" else ${nextMonth} end) where username = ${user} returning "deletionAttempt"`;
       const msg = `An attempt at deleting your account was made, and this will be possible on \'${threeWeeks.toLocaleString()}\' with or without your password. To prevent this, simply delete this notification or uncheck \"Delete Account anyway\" in profile.`;
 
-      const [{ deletionAttempt }] =
+      const [res1] =
         await db`update private.users set "deletionAttempt" = (case when "deletionAttempt" ->> 'message' is not null then "deletionAttempt" else jsonb_build_object('deletionDue', ${threeWeeks}, 'message', ${msg} ) end) where username = ${user} returning "deletionAttempt"`;
+      const { deletionAttempt } = res1 || {};
       deletionDue = deletionAttempt?.deletionDue;
 
       if (new Date(deletionDue) < new Date()) delReady = true;
@@ -1034,7 +1046,8 @@ export async function deleteUser(user, delPass) {
 
     if (delPass || delReady) {
       //Store usage data on user deletion
-      const [{ count }] = await db`select count(*) from public.${db(user)}`;
+      const [res2] = await db`select count(*) from public.${db(user)}`;
+      const { count } = res2 || {};
       await db`update private.usermeta m set joined_on = u.created, deleted_on = now(), total_shots = total_shots + ${count || 0} from (select * from private.users where username = ${user}) as u where m.username = ${user}`;
 
       await db`delete from private.users where username = ${user}`;
@@ -1071,12 +1084,13 @@ export async function getUserSites({ user }) {
     if (!db) throw { error: "Db uninitialised!" };
     if (!user) throw { error: "Unknown user!" };
 
-    const [{ tableName }] =
+    const [res1] =
       await db`select table_name as tableName from information_schema.tables where table_schema = 'public' and table_name = ${user}`;
-
-    const [{ userSites, maxCrons }] =
+    const [res2] =
       await db`select sites as userSites, "maxCrons" from private.users where username = ${user}`;
 
+    const { tableName } = res1 || {};
+    const { userSites, maxCrons } = res2 || {};
     if (!tableName) throw { error: "Could not get user table!" };
     if (!userSites) throw { error: "User has no sites!" };
 
@@ -1189,8 +1203,9 @@ export async function createSession(password, username, expires) {
 
     const cookie = await createCookie();
     const token = await getToken(cookie);
-    const [{ username }] =
+    const [res1] =
       await db`update private.sessions s set "sessionId" = ${token}, expires = ${expires} from private.users u where s.uuid = u.uuid and s.uuid = ${uid} returning u.username`;
+    const { username } = res1 || {};
 
     //can set fingerprint ID -- nope, handled elsewhere;
 
