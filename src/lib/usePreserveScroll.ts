@@ -6,18 +6,18 @@ import type { Swiper as SwiperType } from "swiper";
 type swiperRef = {
   swiper: SwiperType;
   site: string;
-  // id?: number; //No purpose? -- no way to pass this on slidechange
+  // id?: number; //No purpose? since swiper has swiperID no way to pass this on slidechange
 };
 
 type restore = {
-  addedCount?: number;
+  addedCount?: number; // Only relevant for older shots (prepending) since its same count to current position when appending shots
   site: string; // if prepended then added shots upward, but not prepended so index stays same
   prevShotId?: number;
 };
 
 export type preserveScrollType = {
   capturePosition: (site: string) => swiperRef[] | null;
-  restorePosition: (object: restore) => boolean; //this will be for older shots since same count when added  newer shots?
+  restorePosition: (object: restore) => boolean;
   swiperRefs: React.RefObject<swiperRef[]>;
 };
 

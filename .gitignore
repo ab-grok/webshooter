@@ -20,6 +20,9 @@ node_modules
 # production
 /build
 
+# deleted
+worker*
+
 # misc
 .DS_Store
 *.pem

@@ -198,7 +198,7 @@ export function useMutateSites() {
   //use to delete or add sites and update cache
 }
 
-//Updating viewed per shot in other function, and then, also set state to viewed in client state. -- run refetch to check change speed (expensive).
+//Fetches user's screenshot data (shot url + html url)
 export function useQueryShots(site: string) {
   const shotQuery = useInfiniteQuery<
     shots,
@@ -241,6 +241,7 @@ export function useQueryShots(site: string) {
   };
 }
 
+// Get all available crons
 export function useQueryCrons() {
   const cronsQuery = useQuery<
     { crons: Array<{ cron: string }> },
@@ -264,6 +265,7 @@ export function useQueryCrons() {
   };
 }
 
+// Get user data
 export function useUserData() {
   const userQuery = useQuery<userData>({
     queryKey: ["userData"],
@@ -282,6 +284,7 @@ export function useUserData() {
   };
 }
 
+// Get the sites
 export function useQuerySites() {
   //isFetching = true when fetching in background.
   const sitesQuery = useQuery<siteData[], { error: string }>({
