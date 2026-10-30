@@ -13,11 +13,13 @@ export async function POST(req: Request) {
 
     const res = await req.json();
     const shotData = JSON.parse(res);
+
+    console.log("In makeEntry, Got data from aws: \n", { shotData, res });
     if (!shotData.user || !shotData.site) throw "Missing shotData params!";
 
     //shotData : {htmlKey, shotKey, user, site, range, id}
     const { error } = await makeEntry(shotData);
-    if (error) throw { error };
+    if (error) throw error;
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
@@ -25,6 +27,6 @@ export async function POST(req: Request) {
 
     const msgData = { msg, danger: true };
     await setNotification({ msgData, logError: true });
-    return NextResponse.json({ error: e.message || e.error, status: 500 });
+    return NextResponse.json({ error: msg, status: 500 });
   }
 }
