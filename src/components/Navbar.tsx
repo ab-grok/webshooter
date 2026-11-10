@@ -1,10 +1,10 @@
 // src/components/Navbar.tsx
+// TO DO: Can try animatePresence to animate exit of Auth/CronScheduler so that the h/w of components can be interpolated instead of changed instantly;
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import {
   Camera,
   Clock,
@@ -13,6 +13,7 @@ import {
   UserPlus,
   Menu,
   X,
+  User2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,7 +40,7 @@ import { timing } from "./Shots";
 export type modalState = "S" | "L" | "C" | "";
 interface NavbarProps {
   sitesLoading: boolean;
-  sites: siteData[] | undefined;
+  sitesData: siteData[] | undefined;
   selectedSite: siteData | undefined;
   allSitesUnvieweds: unviewedType[];
   localUnviewed: number[] | undefined;
@@ -60,7 +61,7 @@ interface NavbarProps {
 }
 
 function Navbar({
-  sites,
+  sitesData,
   currId,
   userData,
   allSitesUnvieweds,
@@ -79,6 +80,7 @@ function Navbar({
   onSelectedShotsViewed,
 }: NavbarProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [userControlsOpen, setUserControlsOpen] = useState(false);
   const [modalState, setModalState] = useState<modalState>("");
   const [siteData, setSiteData] = useState<siteData>();
   const [resetForm, setResetForm] = useState(0); // set to true after scheduling cron on sign up
@@ -113,11 +115,16 @@ function Navbar({
     return localUnviewed?.filter((s) => s < curr).length || 0;
   }, [localUnviewed]);
 
+  const toggleUserControls = useMemo(() => {
+    setUserControlsOpen((uC) => !uC);
+  }, []);
+
   useEffect(() => {
     if (!modalState || !navbarRef.current) return;
 
     function dismiss(e: MouseEvent | TouchEvent) {
       const t = e.target as HTMLElement;
+      // Q: WHat's '.closest()' and its argument mean?
       const outerEl = t.closest('[data-slot="select-content"]');
       const innerEl = navbarRef.current?.contains(e.target as Node);
       // const el
@@ -170,8 +177,10 @@ function Navbar({
               modalState == "C" && (
                 <CronScheduler
                   userData={userData}
+                  siteData={siteData}
                   resetForm={resetForm}
                   setSiteData={setSiteData}
+                  setResetForm={setResetForm}
                   setModalState={setModalState}
                 />
               )
@@ -204,7 +213,7 @@ function Navbar({
         <div className="hidden items-center gap-4 md:flex">
           {/* Site Switcher */}
           <SitesTab
-            sites={sites}
+            sitesData={sitesData}
             selectedSite={selectedSite}
             onSelectSite={onSelectSite}
             allSitesUnvieweds={allSitesUnvieweds}
@@ -278,13 +287,19 @@ function Navbar({
             </div>
           ) : (
             // TODO: Replace with UserControlsOverlay trigger : Can have notifications and delete account here;
-            <Button variant="ghost" size="sm">
-              Account
+            <Button
+              variant="ghost"
+              onClick={() => toggleUserControls}
+              size="sm"
+            >
+              <User2 className="h-4 w-4" />
+              <span>Account</span>
             </Button>
           )}
         </div>
 
-        {/* Mobile Menu */}
+        {/* Mobile Menu -- Should be removed and the Destop adapted. Or perhaps still used but then adapted away from this current look*/}
+        {/* Do not use this (a different layout for mobile): Only reduce content on Navbar using icons only interaction.  */}
         <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
           <SheetTrigger asChild className="md:hidden">
             <Button variant="ghost" size="icon">
@@ -313,7 +328,7 @@ function Navbar({
                   Sites
                 </p>
                 <SitesTab
-                  sites={sites}
+                  sitesData={sitesData}
                   selectedSite={selectedSite}
                   sitesLoading={sitesLoading}
                   selectedSiteUnviewed={selectedSiteUnviewed}
@@ -327,6 +342,7 @@ function Navbar({
               </div>
 
               {/* Navigation Links */}
+              {/* The AUTH routes here don't work. I use Auth components instead */}
               <div className="flex flex-col gap-2">
                 <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wider uppercase">
                   Navigation

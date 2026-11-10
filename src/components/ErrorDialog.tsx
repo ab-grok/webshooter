@@ -1,4 +1,5 @@
 //src/components/ErrorDialog.tsx
+// Serves as a notification pop up, on successes and alerts not just errors
 "use client";
 
 import { useErrContext } from "@/app/(main)/ErrContext";
@@ -10,7 +11,7 @@ import { AlertCircle, CheckCircle, RefreshCcw } from "lucide-react";
 import { timing } from "./Shots";
 
 export function ErrDialog() {
-  const { errBody, setErrBody } = useErrContext(); //declare danger == false' for !danger
+  const { errBody, setErrBody } = useErrContext(); //set danger == false' for !danger
   const [anim, setAnim] = useState({ a: false, b: false });
   const animRef = useRef<NodeJS.Timeout>(null);
 

@@ -1,5 +1,5 @@
 // Components/Shots.tsx
-//refreshingSHots unused
+//refreshingShots unused
 
 import {
   useMutateDel,
@@ -8,6 +8,7 @@ import {
 } from "@/app/(main)/reactquery";
 import { useDownloader } from "@/lib/downloader";
 import {
+  allUnvieweds,
   cursor,
   delShotType,
   file,
@@ -38,13 +39,12 @@ import SelectedViewer from "./SelectedViewer";
 import { preserveScrollType, usePreserveScroll } from "@/lib/usePreserveScroll";
 import { delShot, getDbShotKeys, getUnviewedIds } from "@/lib/actions";
 import { formatDate } from "@/lib/dateformatter";
-import { useQueryClient } from "@tanstack/react-query";
 import Gallery from "./Gallery";
 import { useErrContext } from "@/app/(main)/ErrContext";
 import { cn } from "@/lib/utils";
 
 export async function filterPromise(p: Promise<file | undefined>[]) {
-  return (await Promise.all(p)).filter((p) => p != undefined);
+  return (await Promise.all(p)).filter((p) => !!p);
 }
 
 export const timing: Transition = {
@@ -54,17 +54,12 @@ export const timing: Transition = {
   duration: 0.5,
 };
 
-type state = {
-  value: boolean;
-  setter: (d: boolean) => void;
-};
-
 type ShotsProp = {
   refresh: string; //state var from userSites refreshShots -- why reload sites.
   site: string;
   onAddSite: () => void;
   preserveScroll: preserveScrollType;
-  deleteSelectedShots: number;
+  deleteSelectedShots: number; //Server as trigger activated from navbar to delete whatever shots' been selected
   downloadTimePeriod: timePeriod;
   downloadUnviewedAfterCurr: handleDownload; //pass 'local' to download local unvieweds else db;
   downloadUnviewedBeforeCurr: handleDownload;
@@ -73,12 +68,8 @@ type ShotsProp = {
   selectedShots: selectedShot[];
   downloadSelectedShots: number;
   viewSelectedShots: number;
-  onlocalUnviewed: (uv: number[]) => void;
   onSelectedShots: Dispatch<SetStateAction<selectedShot[]>>;
-  onAllSitesUnvieweds: ({
-    delIds,
-    allSitesUnvieweds,
-  }: optimisticUnvieweds) => void; //what's this for?
+  onAllSitesUnvieweds: (siteShots: allUnvieweds) => void; //what's this for?
 };
 
 function Shots({
@@ -96,14 +87,13 @@ function Shots({
   viewSelectedShots,
   onAddSite,
   onSelectedShots,
-  onlocalUnviewed,
   onAllSitesUnvieweds,
 }: ShotsProp) {
   // const [siteShots, setSiteShots] = useState<shot[]>();
   const [openedShot, setOpenedShot] = useState<shotData>(); //send setter to gallery>shotCard //used for viewed mod!
-  const [prevOpenedShotId, setPrevOpenedShotId] = useState<number>();
-  const [delIds, setDelIds] = useState<number[]>();
-  const [newShots, setNewShots] = useState(0);
+  // const [prevOpenedShotId, setPrevOpenedShotId] = useState<number>(); // Delete -- Used in previous unviewed count effect
+  // const [delIds, setDelIds] = useState<number[] | []>(); // Delete -- Used in previous unviewed count effect
+  // const [newShots, setNewShots] = useState(0); // Delete -- Used in previous unviewed count effect
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   //hooks
@@ -120,14 +110,6 @@ function Shots({
     [shots],
   );
 
-  //updates localUnviewed used in Navbar
-  useEffect(() => {
-    if (!siteShots) return;
-    console.log("In Shots: useEffect ran");
-    const localUnviewed = siteShots?.filter((s) => !s.viewed).map((s) => s.id);
-    onlocalUnviewed(localUnviewed!);
-  }, [siteShots]);
-
   //Fetches new shots from db every 1 min; Throws when !rows
   //Should fetch if noMoreShots -- else the user hasn't scrolled to latest;
   useEffect(() => {
@@ -140,12 +122,12 @@ function Shots({
         const { error } = await fetchNextShots();
         if (error) throw error;
 
-        setNewShots(Date.now());
+        // setNewShots(Date.now()); //This is used as indicator for uptimistic unvieweds modification -- seems like bloat (think there are other ways to tell new shots added)
         const time = formatDate(Date.now());
         console.log("in Shots.tsx: auto fetch ran fetch on: ", time);
       } catch (e) {
-        setNewShots(0);
-        const err = "Tried fetching new shots: " + e;
+        // setNewShots(0);
+        const err = "Failed to fetch new shots: " + e;
         console.error(err);
       }
     }, 1000 * 60);
@@ -155,12 +137,13 @@ function Shots({
     };
   }, [shots]);
 
-  //tracks ctrl + R for refresh
+  // Tracks 'ctrl + R' press and initiates refresh
   useEffect(() => {
     const ctrlR = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key.toLowerCase() == "r") {
         e.preventDefault();
         refreshShots();
+        //Set ErrLog to "Refreshing Shots"
         return;
       }
     };
@@ -171,18 +154,7 @@ function Shots({
     return () => window.removeEventListener("keydown", ctrlR);
   }, [refresh]);
 
-  //used in SelectedViewer -- for?
-  // const getPrevShot = useCallback(
-  //   (id: number) => {
-  //     // passed to selectedViewer > ...?
-  //     //this render-glitch free?
-  //     if (!siteShots) return undefined;
-
-  //     return siteShots.find((s) => s.id == id);
-  //   },
-  //   [siteShots],
-  // );
-
+  // useInfiniteQuery Refetch function
   const refreshShots = useCallback(async () => {
     try {
       setErrBody({});
@@ -194,39 +166,61 @@ function Shots({
     }
   }, []);
 
-  //Gets unviewedCount: if filters out shots change from refetch
-  //Will update optimistically on viewed since mutateViewed alters shots > siteShots
-  //notOpenedShot: the current openedshot is not new; mutatingDel: true while deleting shot; newShots: true after recent shots fetch; shotsLoading: true for init shots fetch;
+  // Calculate unviewed shots: First sends siteShots to page.tsx, then allSitesUnvieweds from db for replacement
   useEffect(() => {
-    const notOpenedShot = !openedShot || openedShot?.id == prevOpenedShotId;
-    if (notOpenedShot && !mutatingDel && !newShots && !shotsLoading) return;
+    // Send siteShots for optimistic unviewd count
+    if (siteShots) onAllSitesUnvieweds({ siteShots });
 
-    //optimisically reduces unviewedcount on del; Hoping mutatingDel is true when effect runs from siteShots change;
-    if (mutatingDel) {
-      onAllSitesUnvieweds({ delIds });
-    }
-
+    // Get Unviewed count from DB
     (async () => {
       try {
-        //WIll set to retrieve id[] of count.
-        const { error, allSitesUnvieweds } = await getUnviewedIds(); // Main.Page filters for site unvieweds
-        if (error || !allSitesUnvieweds) throw error;
+        const { allSitesUnvieweds, error } = await getUnviewedIds();
+        if (error) throw error;
+
+        const msg = "Sending allsitesUnvieweds data to page.tsx: ";
+        console.log(msg, allSitesUnvieweds);
 
         onAllSitesUnvieweds({ allSitesUnvieweds });
-        if (openedShot) setPrevOpenedShotId(openedShot?.id);
       } catch (e) {
-        // console.error("In Shots getUnviewedIds: ", e);
-        //display error?
+        console.error("Could not get db unvieweds: ", e);
       }
     })();
-  }, [siteShots, shotsLoading, openedShot?.id]);
+  }, [siteShots]);
+
+  // Ceremoniously crafted and too complex; simpler alternative above
+  // //Gets unviewedCount: it filters out shots change from refetch
+  // //Will update optimistically on viewed since mutateViewed alters shots -> siteShots
+  // //notOpenedShot: the current openedshot is not freshly opened; mutatingDel: true while deleting shot; newShots: true after recent shots fetch; shotsLoading: true for init shots fetch;
+  // useEffect(() => {
+  //   const notOpenedShot = !openedShot || openedShot?.id == prevOpenedShotId;
+  //   if (notOpenedShot && !mutatingDel && !newShots && !shotsLoading) return;
+
+  //   //optimisically reduces unviewedcount on del; Hoping mutatingDel is true when effect runs from siteShots change;
+  //   if (mutatingDel) {
+  //     onAllSitesUnvieweds({ delIds });
+  //   }
+
+  //   (async () => {
+  //     try {
+  //       //WIll set to retrieve id[] of count.
+  //       const { error, allSitesUnvieweds } = await getUnviewedIds(); // Main.Page filters for site unvieweds
+  //       if (error || !allSitesUnvieweds) throw error;
+
+  //       onAllSitesUnvieweds({ allSitesUnvieweds });
+  //       if (openedShot) setPrevOpenedShotId(openedShot?.id);
+  //     } catch (e) {
+  //       // console.error("In Shots getUnviewedIds: ", e);
+  //       //display error?
+  //     }
+  //   })();
+  // }, [siteShots, shotsLoading, openedShot?.id]);
 
   //HandleDelShot -- handles del in both gallery and selectedViewer
   const handleDeleteShot = useCallback(async ({ ids }: delShotType) => {
     try {
       ids = Array.isArray(ids) ? ids : [ids];
 
-      setDelIds(ids);
+      console.log("Deleted Shot Ids: ", ids);
       const { error } = await mutateDel(ids); //optimistically deletes from local then db
       if (error) throw error;
     } catch (e: any) {
@@ -240,7 +234,7 @@ function Shots({
     if (!downloadTimePeriod.from) return;
     const { from, to } = downloadTimePeriod;
     handleDownloadTimePeriod({ from, to });
-  }, [downloadTimePeriod.from]);
+  }, [downloadTimePeriod]);
 
   useEffect(() => {
     //refixing to allow local unviewed download with prop
@@ -272,17 +266,20 @@ function Shots({
   //fetches binary from presignedURL and returns blob in fileData
   const getUrlBlob = useCallback(
     async ({ url, key, date, isHtml }: getUrlBlob) => {
-      if (!url || !key || !date) return;
+      if (!url || !key || !date) {
+        throw { message: `Missing Blob parameters!, ${{ url, key, date }}` };
+      }
+
+      // No need for cache, can get binary directly from signedUrl
       // const queryClient = useQueryClient();
       // let cache: any;
       // if (!isHtml) cache = queryClient.getQueryData([site, "downloadShots"])!;
       // if (isHtml) cache = queryClient.getQueryData([site, "html"]);
 
       const res = await fetch(url);
-      if (!res?.ok)
-        throw { message: "Problem fetching Binary from PresignedURL" };
+      if (!res?.ok) throw "Problem fetching Binary from PresignedURL";
 
-      //format 'isShot/user/site_date_time' to 'site date time';
+      //format 'user/<shot|html>/safeSite_date_time' to 'site date time';
       const fileName = key.split("/").slice(2).join().replace(/_/g, " ");
       const fileData = isHtml ? await res.text() : await res.blob();
       const fileType = isHtml ? "text/html" : "image/jpeg";
@@ -298,35 +295,39 @@ function Shots({
   const getLocalUVShotKeys = useCallback(
     ({ id, next }: cursor) => {
       if (!siteShots) return;
+      // Get unviewed shots from rendered shots
       const uvShotKeys0 = siteShots?.filter((s) => !s.viewed)!;
+      // Filter shots from a cursor position
       const uvShotKeys1 = uvShotKeys0.filter((u) =>
-        next ? u.id > id - 1 : u.id < id + 1,
-      ); //+,- includes the current shot to the array;
+        next ? u.id >= id : u.id <= id,
+      );
 
       const uvShotData = uvShotKeys1.map((u) => ({
         key: u.shotKey,
         date: u.date,
         sUrl: u.shotUrl,
+        // hUrl: u.htmlUrl
       }));
 
-      return { uvShotData };
+      return uvShotData;
     },
     [siteShots],
   );
 
   const handleDownloadUnviewedAfterCurrent = useCallback(
     async ({ id, local }: handleDownload) => {
-      //Gets local shotKeys or dbShotKeyskeys, then retrieves cached binary or gets one from R2bucket;
+      //Gets local shotKeys or dbShotKeyskeys, then retrieves cached binary or gets one from s3;
       //pass id: when invoked in Gallery > ShotCard > context menu;
       //rateLimit?
       try {
         //Normalise id: if not passed, get from selectedShots
-        id = id ? id - 1 : selectedShots?.at(0)?.id! - 1; // will throw if id undefined;
+        id = id ?? selectedShots?.at(0)?.id!; // will throw if id undefined;
 
         if (local) {
           //get local unvieweds
-          const uvShotData = getLocalUVShotKeys({ id, next: true })?.uvShotData;
-          if (!uvShotData?.length) return;
+          const uvShotData = getLocalUVShotKeys({ id, next: true });
+          if (!uvShotData?.length)
+            throw `No localUnviewedShots, ${JSON.stringify({ selectedShots })}`;
 
           const uvPromise = uvShotData.map(async (u) =>
             getUrlBlob({ url: u.sUrl, key: u.key, date: u.date }),
@@ -341,7 +342,7 @@ function Shots({
 
           const uvProp = { site, cursor: { id, next: true }, unviewed: true };
           const { error: e2, dShotData } = await getDbShotKeys(uvProp);
-          if (e2) throw e2;
+          if (e2 || !dShotData) throw `${e2} ${JSON.stringify(dShotData)}`;
 
           const uvPromise = dShotData.map((d) =>
             getUrlBlob({ url: d.shotUrl, key: d.shotKey, date: d.date }),
@@ -353,7 +354,10 @@ function Shots({
           if (e3) throw e3;
         }
       } catch (e: any) {
-        console.error("in handleDownloadUnviewedAfterCurrent: ", e.error);
+        console.error(
+          "in handleDownloadUnviewedAfterCurrent: ",
+          e?.message || e,
+        );
         //set Error Notification
       }
     },
@@ -364,13 +368,13 @@ function Shots({
     async ({ id, local }: handleDownload) => {
       try {
         //Normalise id: passed from context menu (right clicked) or derived from selected shot;
-        id = id ? id + 1 : selectedShots?.at(-1)?.id! + 1; //will throw if undefined!
+        id = id ?? selectedShots?.at(-1)?.id!; //will throw if undefined!
 
         if (local) {
-          const uSD = getLocalUVShotKeys({ id, next: false })?.uvShotData;
-          if (!uSD) throw "No local unviewed shots!";
+          const uvShotData = getLocalUVShotKeys({ id, next: false });
+          if (!uvShotData?.length) throw "No local unviewed shots!";
 
-          const uvPromise = uSD.map((u) =>
+          const uvPromise = uvShotData.map((u) =>
             getUrlBlob({ url: u.sUrl, key: u.key, date: u.date }),
           );
 
@@ -380,7 +384,7 @@ function Shots({
         } else {
           const uvProp = { site, cursor: { id, next: false }, unviewed: true };
           const { error: e2, dShotData: dSD } = await getDbShotKeys(uvProp);
-          if (e2 || !dSD) throw e2 || "No dShotData from getDbShotKeys";
+          if (e2 || !dSD) throw `${e2} ${JSON.stringify(dSD)}`;
 
           const uvPromise = dSD.map((d) =>
             getUrlBlob({ url: d.shotUrl, key: d.shotKey, date: d.date }),
@@ -406,14 +410,15 @@ function Shots({
       try {
         const timeProps = { timePeriod: { from, to }, site };
         const { error: e1, dShotData: dSD } = await getDbShotKeys(timeProps);
-        if (e1) throw e1;
+        if (e1 || !dSD) throw `${e1} ${JSON.stringify(dSD)}`;
 
         const tPromises = dSD.map((d) =>
           getUrlBlob({ url: d.shotUrl, key: d.shotKey, date: d.date }),
         );
+
         const tShots = await filterPromise(tPromises);
         const { error } = await download(tShots as file[]);
-        if (error) throw { error };
+        if (error) throw error;
       } catch (e) {
         console.error("in handleDownloadTimePeriod: ", e);
       }
@@ -425,14 +430,16 @@ function Shots({
     async ({ id, local }: handleDownload) => {
       //id: defined when passed from Context Menu;
       try {
-        id = id ? id - 1 : selectedShots?.at(0)?.id! - 1; //will throw if undefined
+        id = id ?? selectedShots?.at(0)?.id!; //will throw if undefined
 
         //get shotKeys from localShots and then binary data
         if (local) {
-          const sSD = siteShots?.filter((s) => s.id > id!)!;
+          const sSD = siteShots?.filter((s) => s.id >= id!)!;
+
           const cPromise = sSD.map((s) =>
             getUrlBlob({ url: s.shotUrl, key: s.shotKey, date: s.date }),
           );
+
           const cShots = await filterPromise(cPromise);
           const { error: e1 } = await download(cShots as file[]);
           if (e1) throw e1;
@@ -440,17 +447,18 @@ function Shots({
           //get shotKeys from db and then binary data
           const cProp = { site, cursor: { id, next: true } };
           const { error: e2, dShotData } = await getDbShotKeys(cProp);
-          if (e2) throw e2;
+          if (e2 || !dShotData) throw `${e2} ${JSON.stringify(dShotData)}`;
 
           const cPromise = dShotData.map((s) =>
             getUrlBlob({ url: s.shotUrl, key: s.shotKey, date: s.date }),
           );
+
           const cShots = await filterPromise(cPromise);
           const { error: e3 } = await download(cShots as file[]);
           if (e3) throw e3;
         }
-      } catch (e) {
-        console.error("in downloadCurrentShotsAndAfter: ", JSON.stringify(e));
+      } catch (e: any) {
+        console.error("in downloadCurrentShotsAndAfter: ", e?.message || e);
       }
     },
     [siteShots],
@@ -467,13 +475,14 @@ function Shots({
           const cPromise = sSD.map((c) =>
             getUrlBlob({ url: c.shotUrl, key: c.shotKey, date: c.date }),
           );
+
           const cShots = await filterPromise(cPromise);
           const { error: e1 } = await download(cShots as file[]);
           if (e1) throw e1;
         } else {
           const cProp = { site, cursor: { id, next: false } };
           const { error: e2, dShotData } = await getDbShotKeys(cProp);
-          if (e2) throw e2;
+          if (e2 || !dShotData) throw `${e2} ${JSON.stringify(dShotData)}`;
 
           const cPromise = dShotData.map((c) =>
             getUrlBlob({ url: c.shotUrl, key: c.shotKey, date: c.date }),
@@ -484,13 +493,13 @@ function Shots({
         }
       } catch (e) {
         const e0 = "in downloadCurrentShotAndBefore: ";
-        console.error(e0, JSON.stringify(e));
+        console.error(e0, e);
       }
     },
     [siteShots],
   );
 
-  // Log error from shotsError
+  // Set Notify of shotsError
   useEffect(() => {
     if (!shotsError) return;
 
@@ -498,6 +507,7 @@ function Shots({
     setErrBody({ ...e, fn: shotsRefetch, fnName: "reFetch" });
   }, [shotsError]);
 
+  // Notify of Delete Shot Error
   useEffect(() => {
     if (!mutateDelErr) return;
     console.log("in Shots: Error trying to del multiShots!", mutateDelErr);
@@ -506,7 +516,7 @@ function Shots({
 
   return (
     <main className="flex min-h-0 flex-1 flex-col bg-white lg:flex-row">
-      {/* CHANGE to skeleton in gallery */}
+      {/* Delete: CHANGED to skeleton in gallery */}
       {/* {(shotsLoading || shotsRefetching) &&
         !siteShots?.length && ( //will not work for shotsRefetching as siteShots is defined -- good
           <div className="flex flex-1 items-center justify-center">
@@ -519,7 +529,7 @@ function Shots({
           </div>
         )} */}
 
-      {/* DEL: Handling error in err dialog now */}
+      {/* Delete: Handling error in err dialog now */}
       {/* {shotsError && !shotsLoading && !shotsRefetching && (
         <div className="flex flex-1 items-center justify-center p-8">
           <Alert
@@ -543,7 +553,7 @@ function Shots({
         </div>
       )} */}
 
-      {/* Del -- no shots for site, do not need to set cron. */}
+      {/* Delete -- no shots for site, may not mean to set cron. */}
       {/* {!shotsLoading && !shotsError && !siteShots?.length && (
         <div className="flex flex-1 items-center justify-center p-8">
           <div className="text-center">

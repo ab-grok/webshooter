@@ -1,7 +1,7 @@
 // components/UserControlsOverlay.tsx
 "use client";
 
-import { useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   User,
@@ -56,7 +56,7 @@ interface UserControlsOverlayProps {
   userEmail?: string;
 }
 
-export function UserControlsOverlay({
+function UserControlsOverlay({
   onLogout,
   onDeleteAccount,
   onDownloadAll,
@@ -64,12 +64,12 @@ export function UserControlsOverlay({
   notifications = [],
   onDismissNotification,
   onMarkAllRead,
-  userName = "User",
-  userEmail = "user@example.com",
+  userName = "Visitor",
+  userEmail = "Visitor@example.com",
 }: UserControlsOverlayProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"account" | "notifications">(
-    "account"
+    "account",
   );
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -90,34 +90,34 @@ export function UserControlsOverlay({
         >
           <User className="h-5 w-5" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+            <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold">
               {unreadCount}
             </span>
           )}
         </Button>
       </SheetTrigger>
 
-      <SheetContent className="flex w-[350px] flex-col border-border/50 bg-card/95 p-0 backdrop-blur-md sm:w-[400px]">
-        <SheetHeader className="border-b border-border/50 p-4">
+      <SheetContent className="border-border/50 bg-card/95 flex w-[350px] flex-col p-0 backdrop-blur-md sm:w-[400px]">
+        <SheetHeader className="border-border/50 border-b p-4">
           <SheetTitle className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                <User className="h-5 w-5 text-primary" />
+              <div className="bg-primary/10 flex h-10 w-10 items-center justify-center rounded-full">
+                <User className="text-primary h-5 w-5" />
               </div>
               <div className="text-left">
                 <p className="text-sm font-medium">{userName}</p>
-                <p className="text-xs text-muted-foreground">{userEmail}</p>
+                <p className="text-muted-foreground text-xs">{userEmail}</p>
               </div>
             </div>
           </SheetTitle>
         </SheetHeader>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-border/50">
+        <div className="border-border/50 flex border-b">
           <button
             className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
               activeTab === "account"
-                ? "border-b-2 border-primary text-primary"
+                ? "border-primary text-primary border-b-2"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setActiveTab("account")}
@@ -127,14 +127,14 @@ export function UserControlsOverlay({
           <button
             className={`relative flex-1 px-4 py-3 text-sm font-medium transition-colors ${
               activeTab === "notifications"
-                ? "border-b-2 border-primary text-primary"
+                ? "border-primary text-primary border-b-2"
                 : "text-muted-foreground hover:text-foreground"
             }`}
             onClick={() => setActiveTab("notifications")}
           >
             Notifications
             {unreadCount > 0 && (
-              <span className="ml-1.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">
+              <span className="bg-primary text-primary-foreground ml-1.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold">
                 {unreadCount}
               </span>
             )}
@@ -155,7 +155,7 @@ export function UserControlsOverlay({
                 <div className="flex-1 space-y-2">
                   {/* Download Actions */}
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <p className="text-muted-foreground text-xs font-medium tracking-wider uppercase">
                       Downloads
                     </p>
                     <Button
@@ -171,16 +171,16 @@ export function UserControlsOverlay({
                       className="w-full justify-start gap-3 bg-transparent"
                       onClick={onDownloadUnviewed}
                     >
-                      <Download className="h-4 w-4 text-primary" />
+                      <Download className="text-primary h-4 w-4" />
                       Download unviewed shots
                     </Button>
                   </div>
 
-                  <Separator className="my-4 bg-border/50" />
+                  <Separator className="bg-border/50 my-4" />
 
                   {/* Account Actions */}
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <p className="text-muted-foreground text-xs font-medium tracking-wider uppercase">
                       Account
                     </p>
                     <Button
@@ -196,7 +196,7 @@ export function UserControlsOverlay({
                       <AlertDialogTrigger asChild>
                         <Button
                           variant="outline"
-                          className="w-full justify-start gap-3 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive bg-transparent"
+                          className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive w-full justify-start gap-3 bg-transparent"
                         >
                           <Trash2 className="h-4 w-4" />
                           Delete account
@@ -205,7 +205,7 @@ export function UserControlsOverlay({
                       <AlertDialogContent className="border-border/50 bg-card/95 backdrop-blur-md">
                         <AlertDialogHeader>
                           <AlertDialogTitle className="flex items-center gap-2">
-                            <AlertTriangle className="h-5 w-5 text-destructive" />
+                            <AlertTriangle className="text-destructive h-5 w-5" />
                             Delete Account
                           </AlertDialogTitle>
                           <AlertDialogDescription>
@@ -248,7 +248,7 @@ export function UserControlsOverlay({
                             transition={{ delay: index * 0.05 }}
                             className={`group relative rounded-lg border p-3 transition-colors ${
                               notification.read
-                                ? "border-transparent bg-muted/30"
+                                ? "bg-muted/30 border-transparent"
                                 : "border-primary/30 bg-primary/5"
                             }`}
                           >
@@ -265,15 +265,15 @@ export function UserControlsOverlay({
                                   {notification.title}
                                 </p>
                               </div>
-                              <p className="mt-1 text-xs text-muted-foreground">
+                              <p className="text-muted-foreground mt-1 text-xs">
                                 {notification.message}
                               </p>
-                              <p className="mt-2 text-[10px] text-muted-foreground">
+                              <p className="text-muted-foreground mt-2 text-[10px]">
                                 {notification.date}
                               </p>
                             </div>
                             <button
-                              className="absolute top-2 right-2 rounded-full p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                              className="text-muted-foreground hover:bg-muted hover:text-foreground absolute top-2 right-2 rounded-full p-1 opacity-0 transition-opacity group-hover:opacity-100"
                               onClick={() =>
                                 onDismissNotification?.(notification.id)
                               }
@@ -286,7 +286,7 @@ export function UserControlsOverlay({
                       </div>
                     </ScrollArea>
                     {unreadCount > 0 && (
-                      <div className="border-t border-border/50 p-3">
+                      <div className="border-border/50 border-t p-3">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -301,8 +301,8 @@ export function UserControlsOverlay({
                   </>
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-                    <Bell className="h-12 w-12 text-muted-foreground/30" />
-                    <p className="mt-4 text-sm text-muted-foreground">
+                    <Bell className="text-muted-foreground/30 h-12 w-12" />
+                    <p className="text-muted-foreground mt-4 text-sm">
                       No notifications
                     </p>
                   </div>
@@ -312,8 +312,8 @@ export function UserControlsOverlay({
           </AnimatePresence>
         </div>
 
-        <SheetFooter className="border-t border-border/50 p-4">
-          <p className="text-xs text-muted-foreground">
+        <SheetFooter className="border-border/50 border-t p-4">
+          <p className="text-muted-foreground text-xs">
             Shooter v1.0.0 - Screenshot automation
           </p>
         </SheetFooter>
@@ -321,3 +321,5 @@ export function UserControlsOverlay({
     </Sheet>
   );
 }
+
+export default React.memo(UserControlsOverlay);

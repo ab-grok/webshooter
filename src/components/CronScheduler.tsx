@@ -1,3 +1,4 @@
+// TO DO: Add a `crons` button that shows available app crons. and existing users on it. 5 per cron
 // components/CronScheduler.tsx
 "use client";
 
@@ -32,10 +33,12 @@ import { useErrContext } from "@/app/(main)/ErrContext";
 import { cronToText, months, weekDays } from "@/lib/dateformatter";
 
 interface cronScheduler {
+  userData: userData | undefined;
   resetForm: number; //math random for resetting after user signs up;
-  userData: userData | undefined; //is defined when user is validated/logged in
-  setSiteData: (fn: ((prev: setSiteData) => setSiteData) | setSiteData) => void;
+  setResetForm: (fn: ((prev: number) => number) | number) => void;
+  setSiteData: (fn: ((prev: setSiteData) => siteData) | siteData) => void;
   setModalState: (fn: ((prev: modalState) => modalState) | modalState) => void;
+  siteData: siteData | undefined;
 }
 
 type setSiteData = siteData | undefined;
@@ -53,14 +56,15 @@ interface cronText {
 }
 
 // Generate preset cron expression from passed {unit, value}
+// Minutes	Hours	Day-of-month	Month	Day-of-week	Year
 function generateCron(config: cronConfig): string {
   const { unit, value } = config;
 
   switch (unit) {
     case "minutes":
-      return `*/${value} * ? * * *`;
+      return `*/${value} * * * ? *`;
     case "hours":
-      return `0 */${value} ? * * *`;
+      return `0 */${value} * * ? *`;
     case "days":
       return `0 0 */${value} * ? *`;
     case "weeks":
@@ -120,11 +124,13 @@ const valueOptions: Record<TimeUnit, number[]> = {
 
 function CronScheduler({
   userData,
+  setResetForm,
   resetForm,
   setSiteData,
   setModalState,
 }: cronScheduler) {
   const [site, setSite] = useState("");
+  //Move to Upper component Navbar to save state after component unmount
   const [cronConfig, setCronConfig] = useState<cronConfig>({
     unit: "hours",
     value: 1,
@@ -133,7 +139,6 @@ function CronScheduler({
   const [useCustomCron, setUseCustomCron] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null); //displayed in interface.
-  const [localResetForm, setLocalResetForm] = useState(0);
   const { setErrBody } = useErrContext();
 
   // Memoize cron expression
@@ -161,7 +166,7 @@ function CronScheduler({
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
 
-    //site data available in top fn, can be called after user reg.
+    //site data available in upper component, can be called after user reg.
     setSiteData({ site, cron, active: true });
 
     //Transitions framer to sign up dialog
@@ -170,7 +175,8 @@ function CronScheduler({
       return;
     }
 
-    setIsSubmitting(true); //triggers loader
+    //trigger loading state
+    setIsSubmitting(true);
     setError(null);
 
     //On error: Display danger notification
@@ -180,27 +186,30 @@ function CronScheduler({
       setErrBody(e);
     }
 
-    //On success: Displays success notification
+    //On success: Display success notification
     const s = {
       label: "Schedule Cron Success",
       msg: `Your cron is now set, it runs ${cronToText(cron)}`,
+      danger: false, //not set
     };
+
     setErrBody(s);
 
     // Reset form
-    setLocalResetForm(Math.random());
+    setResetForm(Math.random());
+    resetForm;
 
     setIsSubmitting(false);
   }, [canSubmit, site, cron, userData]);
 
   //Resets form: Triggered from outside and inside the component
   useEffect(() => {
-    if (!resetForm && !localResetForm) return;
+    if (!resetForm) return;
 
     setSite("");
     setCronConfig({ unit: "hours", value: 1 });
     setCustomCron("");
-  }, [resetForm, localResetForm]);
+  }, [resetForm]);
 
   //returns weekday or number -- which serves well for time units besides weekday
   const getValueLabel = (unit: TimeUnit, value: number): string => {
@@ -212,9 +221,10 @@ function CronScheduler({
 
   return (
     //Use Zod schema
+    // Change to vertical stack for Mobile
     <motion.div
       layout
-      className="scheduleGradient cronBox border-border/50 flex gap-6 rounded-3xl p-4 backdrop-blur-3xl"
+      className="scheduleGradient cronBox border-border/50 flex flex-col gap-6 rounded-3xl p-4 backdrop-blur-3xl lg:flex-row"
     >
       {/* URL Input & Preview */}
       <Card className="cardGradient border-border/50 border-2 shadow-md backdrop-blur-sm">
@@ -281,6 +291,7 @@ function CronScheduler({
       </Card>
 
       {/* Cron Configuration */}
+      {/* Add an `Crons` button that displays existing app crons */}
 
       <Card className="border-border/50 cardGradient border-2 shadow-md backdrop-blur-sm">
         <CardHeader>
@@ -398,7 +409,7 @@ function CronScheduler({
                     <Label htmlFor="custom-cron">Cron Expression</Label>
                     <Input
                       id="custom-cron"
-                      placeholder="* * * * *"
+                      placeholder="* * * * * *"
                       value={customCron}
                       onChange={(e) => setCustomCron(e.target.value)}
                       className={`font-mono ${cronError ? "border-destructive" : ""}`}
@@ -415,7 +426,8 @@ function CronScheduler({
                         </motion.p>
                       )}
                       <p className="text-muted-foreground text-xs">
-                        Format: minute hour day-of-month month day-of-week
+                        <p>Format:</p>
+                        <p>Minutes Hours Day-of-month Month Day-of-week Year</p>
                       </p>
                     </AnimatePresence>
                   </motion.div>

@@ -63,7 +63,7 @@ export function safeCron(cron: string) {
     const cronFields = cron.trim().split(/\s+/);
     if (cronFields.length != 6) throw "Cron must contain six fields!";
 
-    const startingValues = [0, 0, 1, 1, 1, 1970];
+    const startingValues = [0, 0, 1, 1, 1, 2026];
     cronFields.forEach((c, i) =>
       validateCronField(c, units[i], i == 2 || i == 4, startingValues[i]),
     );

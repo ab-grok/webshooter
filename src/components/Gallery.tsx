@@ -1,7 +1,7 @@
-//set trigger action dialog boxes;
 "use client";
-//Components/Gallery
-//Consumed as Shots > Gallery
+// Set confirm dialog boxes for trigger actions;
+// Components/Gallery.tsx
+// Consumed in Shots
 
 import React, {
   useState,

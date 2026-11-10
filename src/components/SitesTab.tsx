@@ -17,7 +17,7 @@ import type { siteData, unviewedType } from "@/lib/types";
 import React from "react";
 
 interface SitesTabProps {
-  sites: siteData[] | undefined;
+  sitesData: siteData[] | undefined;
   selectedSite: siteData | undefined;
   sitesLoading: boolean;
   allSitesUnvieweds: unviewedType[];
@@ -27,7 +27,7 @@ interface SitesTabProps {
 }
 
 function SitesTab({
-  sites,
+  sitesData,
   selectedSite,
   allSitesUnvieweds,
   sitesLoading,
@@ -82,7 +82,7 @@ function SitesTab({
         className="border-border/50 text-text1 bg-card/95 w-55 backdrop-blur-sm"
       >
         <AnimatePresence>
-          {sites?.map((site, index) => {
+          {sitesData?.map((site, index) => {
             const thisSite = allSitesUnvieweds?.find(
               (u) => u?.site == site.site,
             );
@@ -138,7 +138,7 @@ function SitesTab({
           })}
         </AnimatePresence>
 
-        {!sites?.length && (
+        {!sitesData?.length && (
           <div className="text-muted-foreground px-2 py-4 text-center text-sm">
             No active sites
           </div>

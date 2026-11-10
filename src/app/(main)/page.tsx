@@ -3,9 +3,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
+  allUnvieweds,
   handleDownload,
   optimisticUnvieweds,
   selectedShot,
+  shotData,
   siteData,
   timePeriod,
   unviewedType,
@@ -18,12 +20,18 @@ import Navbar from "@/components/Navbar";
 export default function HomePage() {
   const [selectedSite, setSelectedSite] = useState<siteData>(); //unlogged users have no sites, if selectedSite = undefined set to visitor site/cnn.com; account for site active state
   const [refreshingSites, setRefreshingSites] = useState<string>(); //when manual loading getShots
+  const [selectedShots, setSelectedShots] = useState([] as selectedShot[]); //moved from gallery -- will use in navbar for disable "download selected shots" button and also for download selectedShots
 
   //States are triggered using Math.random()
-  const [selectedShots, setSelectedShots] = useState([] as selectedShot[]); //moved from gallery -- will use in navbar for disable "download selected shots" button and also for download selectedShots
   const [deleteSelectedShots, setDeleteSelectedShots] = useState(0);
   const [viewSelectedShots, setViewSelectedShots] = useState(0);
   const [downloadSelectedShots, setDownloadSelectedShots] = useState(0); //pass keys to mutateDownload
+  const preserveScroll = usePreserveScroll(); // passed down to shots>gallery
+
+  const { userData, userDataError, userDataLoading } = useUserData(); //when !userData these dont work: delete*, viewSelectedShots, handleAddSite
+  const { sitesLoading, sitesError, sitesRefetch, sitesData } = useQuerySites(); //sitesRefetch => {data, error, isError, isSuccess}
+  const [localUnviewed, setLocalUnviewed] = useState<number[]>(); //shotIds[] // Is this necessary -- now used in allSitesUnvieweds, previously used elsewhere
+
   const [downloadCurrShotAndBefore, setDownloadCurrShotAndBefore] = useState(
     {} as handleDownload,
   );
@@ -39,17 +47,11 @@ export default function HomePage() {
   const [downloadTimePeriod, setDownloadTimePeriod] = useState(
     {} as timePeriod,
   );
-
-  const { userData, userDataError, userDataLoading } = useUserData(); //when !userData these dont work: delete*, viewSelectedShots, handleAddSite
   // const [userData, setUserData] = useState<userData>(); //will serve as logged indicator and display user info: create type
-  const preserveScroll = usePreserveScroll(); // passed down to shots>gallery
-  const { sitesLoading, sitesError, sitesRefetch, sites } = useQuerySites(); //sitesRefetch => {data, error, isError, isSuccess}
-
   //stores db unvieweds for all sites. Is altered in Shots.tsx when shot is viewed or deleted -- no need for local but still can count local unvieweds and expose on dlLocalUnviewed
   const [allSitesUnvieweds, setAllSitesUnvieweds] = useState(
     [] as unviewedType[],
   );
-  const [localUnviewed, setlocalUnviewed] = useState<number[]>(); //shotIds[]
 
   const currId = useMemo(() => {
     if (!selectedShots) return { first: 0, last: 0 };
@@ -60,28 +62,89 @@ export default function HomePage() {
     return { first, last };
   }, [selectedShots]);
 
-  // called in shots change effect
+  // // called in shots change effect -- Unneeded
+  // const handleAllSitesUnvieweds = useCallback(
+  //   ({ delIds, allSitesUnvieweds }: optimisticUnvieweds) => {
+  //     setAllSitesUnvieweds((prev) => {
+  //       const siteUnvieweds = prev.find((p) => p.site == selectedSite?.site)!;
+  //       return delIds?.length
+  //         ? [
+  //             //if delIds: subtract delIds from the previous unvieweds count
+  //             ...prev.filter((s) => s.site != selectedSite?.site),
+  //             {
+  //               ...siteUnvieweds,
+  //               unvieweds:
+  //                 siteUnvieweds?.unvieweds.filter(
+  //                   (s) => !delIds?.includes(s),
+  //                 ) || [],
+  //             },
+  //           ]
+  //         : allSitesUnvieweds!;
+  //     });
+  //   },
+  //   [],
+  // );
+
+  // Revampted allsitesUnvieweds -- calculated from siteShots
   const handleAllSitesUnvieweds = useCallback(
-    ({ delIds, allSitesUnvieweds }: optimisticUnvieweds) => {
+    ({ siteShots, allSitesUnvieweds }: allUnvieweds) => {
+      // Exit if there is no selectedSite, there should be one;
+      // Passing only one arg: siteShots upon any change, and then allSitesUnviewed after getUnviewedIds() resolves.
+      if (!selectedSite?.site) {
+        console.error("In page.tsx > handleSitesUnvieweds; No selected Site!");
+        return;
+      }
+
+      if (allSitesUnvieweds) setAllSitesUnvieweds(allSitesUnvieweds);
+      // This is to tell js that siteShots is defined; I do not pass both allSitesUnviewds and siteShots and a conflict cannot arise from both present
+      if (!siteShots) return;
+
+      const currLocalUnvieweds = siteShots
+        .filter((s) => !s.viewed)
+        .map((s) => s.id);
+
+      // Get removedUnvieweds (viewed/deleted): subtract the currentIds from the formerIds
+      const removedIds =
+        localUnviewed?.filter((u) => !currLocalUnvieweds.includes(u)) || [];
+
+      // Get newUnvieweds: subtract formerIds from the currentIds
+      const newIds =
+        currLocalUnvieweds.filter((u) => !localUnviewed?.includes(u)) || [];
+
+      // Fix values into 'AllSitesUnvieweds' state variable
       setAllSitesUnvieweds((prev) => {
-        const siteUnvieweds = prev.find((p) => p.site == selectedSite?.site)!;
-        return delIds?.length
-          ? [
-              //if delIds: subtract delIds from the previous unvieweds count
-              ...prev.filter((s) => s.site != selectedSite?.site),
-              {
-                ...siteUnvieweds,
-                unvieweds:
-                  siteUnvieweds?.unvieweds.filter(
-                    (s) => !delIds?.includes(s),
-                  ) || [],
-              },
-            ]
-          : allSitesUnvieweds!;
+        const prevUnvieweds = prev.find((s) => s.site == selectedSite.site);
+
+        // Concatenate new ids and filter out removed ones
+        // Set gets unique entries and spreads iterable into array
+        const newUnvieweds = [
+          ...new Set(
+            (prevUnvieweds?.unvieweds || [])
+              .concat(newIds)
+              .filter((u) => !removedIds.includes(u)) || [],
+          ),
+        ];
+
+        return [
+          //filter out current site, well get fresh entry after update
+          ...prev.filter((s) => s.site != selectedSite.site),
+          {
+            site: selectedSite.site,
+            unvieweds: newUnvieweds,
+          },
+        ];
       });
+
+      //Update localUnvieweds with new siteshots value
+      handleLocalUnvieweds(siteShots);
     },
-    [],
+    [selectedSite],
   );
+
+  const handleLocalUnvieweds = useCallback((siteShots: shotData[]) => {
+    const unvieweds = siteShots.filter((s) => !s.viewed).map((s) => s.id);
+    setLocalUnviewed(unvieweds);
+  }, []);
 
   // decrement optimisticViewed by 1 when shot viewed or unvieweds when multiShots are deleted
   // -- will pass to components which view shots
@@ -113,13 +176,6 @@ export default function HomePage() {
   //   },
   //   [selectedSite?.site],
   // );
-
-  useEffect(() => {
-    console.log("in HomePage, useEffect ran;");
-    if (!sites?.length) return;
-    handleSelectSite(sites[0]);
-    //can load userSettings.lastSite
-  }, [sites?.length]);
 
   //Old and inneficient: Gets the real value of site's unvieweds shots upon optimisiticUnviewed change, then updates if different -- shots may be incomplete (can only get count from db and then alter)
   // useEffect(() => {
@@ -210,8 +266,15 @@ export default function HomePage() {
   //   loadShots();
   // }, [selectedSite]);
 
-  const handleSelectSite = useCallback((site: siteData) => {
-    setSelectedSite(site);
+  useEffect(() => {
+    console.log("in HomePage, useEffect ran;");
+    if (!sitesData?.length) return;
+    handleSelectSite(sitesData[0]);
+    //can load userSettings.lastSite
+  }, [sitesData?.length]);
+
+  const handleSelectSite = useCallback((siteData: siteData) => {
+    setSelectedSite(siteData);
   }, []);
 
   //place in navbar
@@ -240,7 +303,7 @@ export default function HomePage() {
       {/* Navbar */}
       <Navbar
         //create contextMenu for these functions in Shots > gallery
-        sites={sites}
+        sitesData={sitesData}
         selectedSite={selectedSite}
         onSelectSite={handleSelectSite}
         sitesLoading={sitesLoading}
@@ -276,7 +339,6 @@ export default function HomePage() {
         downloadSelectedShots={downloadSelectedShots}
         viewSelectedShots={viewSelectedShots}
         onAddSite={handleAddSite}
-        onlocalUnviewed={setlocalUnviewed}
         onAllSitesUnvieweds={handleAllSitesUnvieweds}
         onSelectedShots={setSelectedShots}
       />

@@ -303,7 +303,7 @@ export function useQuerySites() {
   return {
     sitesLoading: sitesQuery.isLoading,
     sitesError: sitesQuery.error,
-    sites: sitesQuery.data,
+    sitesData: sitesQuery.data,
     sitesFetching: sitesQuery.isFetching,
     sitesRefetch: sitesQuery.refetch,
   };

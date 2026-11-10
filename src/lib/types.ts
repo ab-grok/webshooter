@@ -37,7 +37,7 @@ export type userData = {
 
 export type handleDownload = {
   id?: number; //Needed from context menu; not needed from navbar,
-  local?: boolean;
+  local?: boolean; // Indicates if the download should be of rendered/db shots
   unique?: number; // Date.now() which will trigger fresh downloads from navbar
 };
 
@@ -80,6 +80,11 @@ export type siteData = {
   site: string;
   range?: { start: number; end: number };
   active: boolean;
+};
+
+export type allUnvieweds = {
+  siteShots?: shotData[]; // can get unviewd Count from this, store, then calculate the difference in further updates and add that to allSiteUnvieweds
+  allSitesUnvieweds?: unviewedType[];
 };
 
 export type unviewedType = {

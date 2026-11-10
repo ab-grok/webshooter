@@ -188,7 +188,7 @@ export async function scheduleShot(safeSD: siteData) {
   if (e0) return { error: e0 };
 
   safeSD = (await getSafeSD(safeSD))!;
-  if (!safeSD) return { error: "Unsafe parameters!" };
+  if (!safeSD) return { error: "Unsafe site parameters!" };
 
   const SDprops = { safeSD, user, del: false, re: false, ...safeSD };
 
@@ -349,6 +349,7 @@ export async function getDbShotKeys({
   site,
 }: downloadProps & { site: string }) {
   const { user } = await validateSession();
+  //Doesnt check 'site' cause visitors won't have one, but have a visitor site that is handled by fn.
   const p = { user, site, downloadProps: { timePeriod, cursor, unviewed } };
 
   return await getDownloadShotKeys(p);
@@ -392,7 +393,7 @@ export async function getUnviewedIds() {
   if (!user) return { error: "Unknown user!" };
 
   const { allSitesUnvieweds, error } = await getUnviewedShotIds(user);
-  if (!allSitesUnvieweds) return { error: "Could not get unvieweds" };
+  if (!allSitesUnvieweds) return { error: "Could not get unvieweds" + error };
 
   return { allSitesUnvieweds };
 }

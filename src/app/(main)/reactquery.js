@@ -1,0 +1,310 @@
+"use client";
+
+import {
+  delShot,
+  getShots,
+  getSites,
+  getUserData,
+  setViewed,
+  shotProp,
+} from "@/lib/actions";
+import { getCrons } from "@/lib/server";
+import { shotData, shots, siteData, userData } from "@/lib/types";
+import {
+  InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+
+//Optimistically Deletes shots:idArray from useQuery data (which triggers UX update), then runs delShot (deleting from db);
+export function useMutateDel(site: string) {
+  const queryClient = useQueryClient();
+
+  const mutateShot = useMutation<
+    { error: string | null },
+    { error: string },
+    number[],
+    { prevData: any }
+  >({
+    //ids passed on invoke
+    mutationFn: async (ids) => await delShot({ ids, site }), //returns {error} -- confirm error checking is useMutateDel.error!
+    onMutate: async (ids) => {
+      await queryClient.cancelQueries({ queryKey: [site, "shots"] }); //Cancel in-flight fetches
+      const prevData = await queryClient.getQueryData([site, "shots"]);
+
+      // queryClient.setQueryData<InfiniteData<shots, { id: any; next: boolean }>> -- this is the correct typing for TPageParam but I reckon 'unknown' is inconsequential?
+      queryClient.setQueryData<InfiniteData<shots, unknown>>(
+        [site, "shots"],
+        (oldData) => {
+          if (!oldData) return oldData;
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page) => ({
+              ...page,
+              shotsData: page.shotsData.filter((s) => !ids?.includes(s.id)),
+            })),
+          };
+        },
+      );
+
+      return { prevData }; //Is available in context to reset data db request error after optimistic update;
+    },
+    onError: (err, ids, context) => {
+      queryClient.setQueryData([site, "shots"], context?.prevData);
+      return err;
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: [site, "shots"] }); //why invalidateQueries()?
+    },
+  });
+
+  return {
+    mutateDelErr: mutateShot.error,
+    //mutateDelErr reads as ```(property) mutateDelErr: {
+    // error: string;
+    //} | null
+    //```
+    //But delShot returns {error} which I reckon is referenced by mutateShot. Or is there a default second error nesting made by mutateshot?
+    mutatingDel: mutateShot.isPending,
+    delReset: mutateShot.reset,
+    mutateDel: mutateShot.mutateAsync,
+  };
+}
+
+// export function useMutateShotBinary(site: string) {
+//   //DEL: Run in a loop to fetch shots one by one fitting vercel serverless fn 4.5mb payload limit;
+//   //Checks that passed key is not in cache before fetching -- good
+//   const queryClient = useQueryClient();
+
+//   const mutateShotBin = useMutation<
+//     { shotBlob: Blob; shotUrl: string },
+//     Error,
+//     { shotUrl: string }
+//   >({
+//     mutationFn: async ({ shotUrl }) => {
+//       const res = await fetch(shotUrl);
+
+//       let error = "";
+//       if (!res?.ok) {
+//         const e = (await res.json())?.error;
+//         error = "Could not fetch ShotBinary: " + error;
+//         throw new Error(error);
+//       }
+
+//       const shotBlob = await res.blob();
+//       return { shotBlob, shotUrl };
+//     },
+//     onSuccess: ({ shotBlob, shotUrl }) => {
+//       queryClient.setQueryData<any>([site, "downloadShots"], (prev = {}) => ({
+//         ...prev,
+//         [shotUrl]: shotBlob,
+//       }));
+//     },
+//   });
+
+//   return {
+//     shotBinary: mutateShotBin.data,
+//     getShotBinary: mutateShotBin.mutateAsync,
+//     shotBinaryError: mutateShotBin.error,
+//   };
+// }
+
+// export function useMutateHtml(site: string) {
+//   const queryClient = useQueryClient();
+
+//   const mutateHtml = useMutation<
+//     { html: Blob; htmlKey: string },
+//     { error: string },
+//     { htmlKey: string }
+//   >({
+//     mutationFn: async ({ htmlKey }) => {
+//       const { error, html } = await getR2Html(htmlKey);
+//       if (error || !html) throw { error: error || "No Html Blob!" };
+//       return { html, htmlKey };
+//     },
+//     onSuccess: ({ html, htmlKey }) => {
+//       queryClient.setQueryData<Record<string, Blob>>(
+//         [site, "html"],
+//         (prev) => ({
+//           ...prev,
+//           [htmlKey]: html,
+//         }),
+//       );
+//     },
+//   });
+
+//   return {
+//     html: mutateHtml.data,
+//     getHtml: mutateHtml.mutateAsync,
+//     htmlError: mutateHtml.error,
+//   };
+// }
+
+//Calls setViewed when a shot is opened
+
+export function useMutateViewed(site: string) {
+  const queryClient = useQueryClient();
+
+  const mutateViewed = useMutation<
+    { error: null | string },
+    { error: string },
+    { ids: number[] },
+    { prevData: any }
+  >({
+    mutationFn: async ({ ids }) => await setViewed({ ids, site }),
+    onMutate: async ({ ids }) => {
+      await queryClient.cancelQueries({ queryKey: [site, "shots"] });
+      const prevData = await queryClient.getQueryData([site, "shots"]);
+
+      queryClient.setQueryData<InfiniteData<shots, unknown>>(
+        [site, "shots"],
+        (oldData) => {
+          if (!oldData) return oldData;
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page) => ({
+              ...page,
+              shotsData: page.shotsData.map((s: shotData) =>
+                ids?.includes(s.id) ? { ...s, viewed: true } : s,
+              ),
+            })),
+          };
+        },
+      );
+
+      return { prevData };
+    },
+    onError: async (err, vars, context) => {
+      await queryClient.setQueryData([site, "shots"], context?.prevData);
+      return err;
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: [site, "shots"] });
+    },
+  });
+
+  return {
+    mutateViewed: mutateViewed.mutateAsync,
+    mutateViewedErr: mutateViewed.error,
+    mutatingViewed: mutateViewed.isPending,
+    resetViewed: mutateViewed.reset, //clears flags: errors and prevData
+  };
+}
+
+// Set Confirm Dialog before deleting sites -- as fn drops column including all shots and cron.
+export function useMutateSites() {
+  //use to delete or add sites and update cache
+}
+
+//Fetches user's screenshot data (shot url + html url)
+export function useQueryShots(site: string) {
+  const shotQuery = useInfiniteQuery<
+    shots,
+    { error: string },
+    InfiniteData<shots>,
+    [string, string],
+    { id: any; next: boolean }
+  >({
+    queryKey: [site, "shots"],
+    queryFn: async ({ pageParam }) => {
+      const { id, next } = pageParam;
+      //when error: all props besides error will be null;
+      const { error, ...shots } = await getShots({ id, next, site });
+      if (error) throw { error };
+      return shots;
+    },
+    getNextPageParam: (lastPage) => ({
+      id: lastPage.nextCursor,
+      next: true,
+    }),
+    getPreviousPageParam: (firstPage) => ({
+      id: firstPage.prevCursor,
+      next: false,
+    }),
+    initialPageParam: { id: null, next: true },
+    staleTime: 60000 * 10, //increasing staleTime -- refetches do not need to be performed in auto -- will use refetch to handle viewed.
+  });
+
+  return {
+    shots: shotQuery.data,
+    shotsError: shotQuery.error,
+    shotsLoading: shotQuery.isLoading,
+    shotsFetching: shotQuery.isFetching, //(true for any request ) -- fetchingNext/PrevShots suffices for that.
+    shotsRefetching: shotQuery.isRefetching,
+    fetchNextShots: shotQuery.fetchNextPage,
+    fetchPrevShots: shotQuery.fetchPreviousPage,
+    fetchingNextShots: shotQuery.isFetchingNextPage,
+    fetchingPrevShots: shotQuery.isFetchingPreviousPage,
+    shotsRefetch: shotQuery.refetch,
+  };
+}
+
+// Get all available crons
+export function useQueryCrons() {
+  const cronsQuery = useQuery<
+    { crons: Array<{ cron: string }> },
+    { error: string }
+  >({
+    queryKey: ["sites"],
+    queryFn: async () => {
+      const { error, crons } = await getCrons();
+      if (error) throw { error };
+      return { crons };
+    },
+    staleTime: Infinity,
+  });
+
+  return {
+    cronsLoading: cronsQuery.isLoading,
+    cronsError: cronsQuery.error,
+    crons: cronsQuery.data,
+    cronsFetching: cronsQuery.isFetching,
+    cronsRefetch: cronsQuery.refetch,
+  };
+}
+
+// Get user data
+export function useUserData() {
+  const userQuery = useQuery<userData>({
+    queryKey: ["userData"],
+    queryFn: async () => {
+      const { error, ...rest } = await getUserData();
+      if (error) throw error;
+      return rest;
+    },
+    staleTime: Infinity,
+  });
+
+  return {
+    userData: userQuery.data,
+    userDataError: userQuery.error,
+    userDataLoading: userQuery.isLoading,
+  };
+}
+
+// Get the sites
+export function useQuerySites() {
+  //isFetching = true when fetching in background.
+  const sitesQuery = useQuery<siteData[], { error: string }>({
+    queryKey: ["sites"],
+    queryFn: async () => {
+      const { userSites } = await getSites();
+
+      if (!userSites) throw { error: "No userSites!" };
+
+      console.log("In useQuerSites", { userSites });
+      return userSites as siteData[];
+    },
+    staleTime: Infinity,
+  });
+
+  return {
+    sitesLoading: sitesQuery.isLoading,
+    sitesError: sitesQuery.error,
+    sitesData: sitesQuery.data,
+    sitesFetching: sitesQuery.isFetching,
+    sitesRefetch: sitesQuery.refetch,
+  };
+}
