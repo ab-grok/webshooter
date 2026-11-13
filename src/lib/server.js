@@ -114,10 +114,8 @@ export async function delPrevEntry({ cron, site, user }) {
     const r2 =
       await db`delete from public.${u} where ${shotCol} is not null and date < now() - (${sD} * interval '1 days') returning ${shotCol} as "shotKey"`;
 
-    if (!r2.length) {
+    if (!r2.length)
       console.log("User has no prev shots! Expected occurrence not an error!");
-      return { error: null };
-    }
 
     await db`update private.usermeta set total_shots = total_shots + ${r2.length} where username = ${user}`;
 
@@ -162,11 +160,15 @@ async function deleteR2Shot(shotKeysArr) {
     //result can be in json form or text() form.
     if (res.ok) return { error: null };
 
-    let error = await res?.json();
-    if (!error) error = await res?.clone().text();
+    let error;
+    const clone = res?.clone();
+    try {
+      error = await res?.json();
+    } catch (e) {
+      error = await clone?.text();
+    }
 
-    if (!res.ok) throw { error };
-    return { error: null };
+    if (error) throw { error };
   } catch (e) {
     console.error(e);
     return { error: "error in deleteR2Shot: " + (e.error || "") };
@@ -178,7 +180,6 @@ export async function getCronSites(cronValue) {
   try {
     const readySites = [];
     let errLogs = [];
-    let userPurged = [];
     let id = Math.floor(Math.random() * 1000000);
     let userInactivePeriod = new Date();
     userInactivePeriod.setMonth(userInactivePeriod.getMonth() - 3);
@@ -214,6 +215,7 @@ export async function getCronSites(cronValue) {
     //loops over cronData retreiving siteData per userCron (as cronData[] entries)
     for (const [i, { site, range, user }] of cD?.entries()) {
       let erred;
+      let userPurged;
 
       const [res2] =
         await db`select s."lastLog" from private.users u inner join private.sessions s on u.uuid = s.uuid where u.username = ${user} `;
@@ -675,8 +677,8 @@ export async function getUserShots(shotSet) {
 
     //Update table with new signedUrls;
     const r4 =
-      //jsonb_array_elem() helps parse signedUrls for use in sql statement; signedUrls is cast to jsonb but is jsonb[]; Does this work?
-      await db`update ${u} set shot_url = sU ->> 'shotUrl', html_url = sU ->> 'htmlUrl' from jsonb_array_elements(${signedUrls}::jsonb) as sU where ${sC} = sU ->> 'shotKey'`;
+      //jsonb_array_elem() helps parse the db.json stringified 'signedUrls' apparently db.json is essential for converting js object to pg jsonb[];
+      await db`update ${u} set shot_url = sU ->> 'shotUrl', html_url = sU ->> 'htmlUrl' from jsonb_array_elements(${db.json(signedUrls)}::jsonb) as sU where ${sC} = sU ->> 'shotKey'`;
 
     const shotIds = shotsData.map((s) => s.id);
     const nextCursor = shotIds.at(-1);
@@ -742,7 +744,7 @@ export async function getVisitorShots(shotSet) {
 
     //update table with new signedUrls;
     const r4 =
-      await db`update ${vtb} set shot_url = sU ->> 'shotUrl', html_url = sU->> 'htmlUrl from jsonb_array_elements(${signedUrls}::jsonb) as sU where ${vShotCol} = sU ->> 'shotKey'`;
+      await db`update ${vtb} set shot_url = sU ->> 'shotUrl', html_url = sU->> 'htmlUrl' from jsonb_array_elements(${db.json(signedUrls)}::jsonb) as sU where ${vShotCol} = sU ->> 'shotKey'`;
 
     //viewedIds would filter out deleted shots which have key_expires (expires) as null, but that is redundant since it is filtered in shotsData.
     const shotIds = shotsData.map((s) => s.id);
@@ -797,7 +799,7 @@ export async function getDownloadShotKeys({ site, user, downloadProps }) {
 
     const keys = dShotData.map((s) => ({
       shotKey: s.shotKey,
-      htmlkey: s.htmlKey,
+      htmlKey: s.htmlKey,
     }));
 
     const { error, signedUrls } = await getSignedUrls(keys);
@@ -805,7 +807,7 @@ export async function getDownloadShotKeys({ site, user, downloadProps }) {
 
     // Normalise dShotData with new signedUrls
     dShotData = dShotData.map((s) => {
-      newKeys = signedUrls.find((u) => u.shotKey == s.shotKey);
+      const newKeys = signedUrls.find((u) => u.shotKey == s.shotKey);
       return { ...s, ...(newKeys || {}) };
     });
 
@@ -839,13 +841,17 @@ async function getSignedUrls(keys) {
 
     const res = await fetch(shooterAPI, options);
 
-    if (!res.ok) {
-      let error = await res?.json();
-      if (!error) error = await res?.clone?.text();
-      throw { error };
+    if (res.ok) return { signedUrls: await res.json() };
+
+    let error;
+    const clone = res?.clone();
+    try {
+      error = await res?.json();
+    } catch (e) {
+      error = await clone?.text();
     }
 
-    return { signedUrls: await res.json() };
+    if (error) throw { error };
   } catch (e) {
     console.error("Error in getSignedUrl: ", e);
     return { error: "Error getting getSignedUrls: " + (e || "") };
@@ -926,8 +932,7 @@ export async function deleteShot({ ids, user, site }) {
     !Array.isArray(ids) && (ids = [ids]);
     const u = db(user);
     const htmlCol = db(safeSite(site, "noDots") + "_html_key");
-    const shotCol = db(safeSite(site, "noDots"));
-    ("_shot_key");
+    const shotCol = db(safeSite(site, "noDots") + "_shot_key");
 
     const r1 =
       //SQL ok?
