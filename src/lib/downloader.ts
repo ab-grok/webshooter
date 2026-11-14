@@ -11,7 +11,8 @@ type downloader = {
 export function useDownloader(): downloader {
   async function download(file: file | file[]) {
     try {
-      if (!file) throw "File is undefined";
+      if (!file)
+        throw new Error(`Invalid file argument: '${JSON.stringify(file)}'`);
       let name: string;
       let content: Blob;
 
@@ -80,5 +81,5 @@ function createBlob(file: file) {
   if (data instanceof ArrayBuffer || data instanceof Uint8Array || isHtml)
     return new Blob([data], { type });
 
-  throw "File data not supported; Type: " + type;
+  throw new Error("File data not supported; Type: " + type);
 }

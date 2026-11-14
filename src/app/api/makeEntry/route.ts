@@ -14,11 +14,12 @@ export async function POST(req: Request) {
     const shotData = await req.json();
 
     console.log("In makeEntry, Got data from aws: \n", { shotData });
-    if (!shotData.user || !shotData.site) throw "Missing shotData params!";
+    if (!shotData.user || !shotData.site)
+      throw new Error("Missing shotData params!");
 
     //shotData : {htmlKey, shotKey, user, site, range, id}
     const { error } = await makeEntry(shotData);
-    if (error) throw error;
+    if (error) throw new Error(String(error));
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

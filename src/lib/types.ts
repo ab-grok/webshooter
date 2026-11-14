@@ -30,7 +30,6 @@ export type userData = {
   joined?: string;
   memberTier?: tier;
   maxCrons?: number;
-  activeSites?: userSites;
   userSites?: userSites;
   error?: string;
 };
@@ -120,4 +119,9 @@ export type userSites = siteData[];
 export type queryData = {
   pages: shots[];
   pageParam: { id: number; next: boolean };
+};
+
+export type appCrons = {
+  crons: { cron: string }[];
+  error: string;
 };

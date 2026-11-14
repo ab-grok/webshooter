@@ -1154,22 +1154,23 @@ export async function getUserSites({ user }) {
   }
 }
 
-export async function getActiveSites(user) {
-  //for this, set active: true on all new site/cron addition and false on stale or deactivation
-  try {
-    const { userSites, maxCrons, error } = await getUserSites({ user });
-    if (!maxCrons) throw { error: 'User "maxCrons" missing.' };
-    if (error) throw error;
+// // Redundant -- can get active sites from getUserSites
+// export async function getActiveSites(user) {
+//   //for this, set active: true on all new site/cron addition and false on stale or deactivation
+//   try {
+//     const { userSites, maxCrons, error } = await getUserSites({ user });
+//     if (!maxCrons) throw { error: 'User "maxCrons" missing.' };
+//     if (error) throw error;
 
-    const activeSites = userSites?.filter((s) => s.active == true);
-    const canAddSite = (activeSites?.length || 0) < maxCrons;
+//     const activeSites = userSites?.filter((s) => s.active == true);
+//     const canAddSite = (activeSites?.length || 0) < maxCrons;
 
-    return { canAddSite, maxCrons, activeSites, userSites };
-  } catch (e) {
-    console.error("in getActiveSites: ", e);
-    return { canAddSite: false, error: e.error || "Cannot add site!" };
-  }
-}
+//     return { canAddSite, maxCrons, activeSites, userSites };
+//   } catch (e) {
+//     console.error("in getActiveSites: ", e);
+//     return { canAddSite: false, error: e.error || "Cannot add site!" };
+//   }
+// }
 
 export async function setSiteInactive({ site, cron, user }) {
   //sets site in userSites to inactive -- can optionally deletes all site rows from user table;

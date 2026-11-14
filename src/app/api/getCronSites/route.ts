@@ -11,13 +11,14 @@ export async function GET(req: Request) {
 
     const { payload } = await jose.jwtVerify(token, secret);
     const { cron } = payload;
-    if (typeof cron !== "string" || !cron) throw { error: "Missing cronName" };
+    if (typeof cron !== "string" || !cron)
+      throw new Error("Missing cronName");
 
     const p = { payload, cron };
     console.log("In getCronSites, right before function call: ", p);
 
     const { error: e, readySites, id } = await getCronSites(cron);
-    if (e) throw e;
+    if (e) throw new Error(String(e));
 
     return NextResponse.json({ readySites, id });
   } catch (e: any) {

@@ -154,7 +154,10 @@ function Gallery({
 
   useEffect(() => {
     if (!mutateViewedErr) return;
-    setErrBody({ msg: mutateViewedErr.error, label: "Set Shot Viewed Error!" });
+    setErrBody({
+      msg: mutateViewedErr.message,
+      label: "Set Shot Viewed Error!",
+    });
   }, [mutateViewedErr]);
 
   //Closes errorDialog
@@ -174,10 +177,13 @@ function Gallery({
       const selShots = await filterPromise(selShots0);
 
       const { error } = await download(selShots);
-      if (error) throw error;
+      if (error) throw new Error(String(error));
     } catch (e: any) {
       console.error("in Gallery handleDownloadSelShots: ", e);
-      setErrBody({ msg: e, label: "Download Selected Shots Error!" });
+      setErrBody({
+        msg: e instanceof Error ? e.message : String(e),
+        label: "Download Selected Shots Error!",
+      });
     }
   }, [selectedShots]);
 
@@ -192,10 +198,13 @@ function Gallery({
         }
 
         const { error } = await mutateViewed({ ids }); //before await resolves, shots refresh optimistically
-        if (error) throw error;
+        if (error) throw new Error(String(error));
       } catch (e: any) {
         console.error("in Gallery handleViewed: ", e);
-        setErrBody({ msg: e, label: "Set Viewed Error!" });
+        setErrBody({
+          msg: e instanceof Error ? e.message : String(e),
+          label: "Set Viewed Error!",
+        });
       }
     },
     [selectedShots],
@@ -219,7 +228,10 @@ function Gallery({
         return;
       } catch (e: any) {
         console.error("in Gallery handleDeleteShot2: ", e);
-        setErrBody({ msg: e, label: "Delete Shot Error!" });
+        setErrBody({
+          msg: e instanceof Error ? e.message : String(e),
+          label: "Delete Shot Error!",
+        });
       }
     },
     [selectedShots],
@@ -239,8 +251,8 @@ function Gallery({
 
   const onReachBegining = useCallback(async () => {
     try {
-      if (noMorePrev) throw "No more prev shots!";
-      if (fetchingPrevShots) throw "Fetching prev shots!";
+      if (noMorePrev) throw new Error("No more prev shots!");
+      if (fetchingPrevShots) throw new Error("Fetching prev shots!");
 
       const { error, data } = await fetchPrevShots();
       if (error) throw error;
@@ -249,14 +261,17 @@ function Gallery({
       setAddedCount(data?.pages[0].shotsData.length!);
     } catch (e: any) {
       console.error("In onScrollDown: ", e);
-      setErrBody({ msg: e, label: "Fetch Prev Shots Error!" });
+      setErrBody({
+        msg: e instanceof Error ? e.message : String(e),
+        label: "Fetch Prev Shots Error!",
+      });
     }
   }, [noMorePrev, fetchingPrevShots]);
 
   const onReachEnd = useCallback(async () => {
     try {
-      if (noMoreNext) throw "You're up to date.";
-      if (fetchingNextShots) throw "Fetching next shots.";
+      if (noMoreNext) throw new Error("You're up to date.");
+      if (fetchingNextShots) throw new Error("Fetching next shots.");
 
       const { error, data } = await fetchNextShots();
       if (error) throw error;
@@ -265,7 +280,10 @@ function Gallery({
       // effect is triggered by shots change
     } catch (e: any) {
       console.error("In onScrollUp: ", e);
-      setErrBody({ msg: e, label: "Fetch Next Shots Error!" });
+      setErrBody({
+        msg: e instanceof Error ? e.message : String(e),
+        label: "Fetch Next Shots Error!",
+      });
     }
   }, [noMoreNext, fetchingNextShots]);
 

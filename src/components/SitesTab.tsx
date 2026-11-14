@@ -3,7 +3,14 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, Globe, Plus, ExternalLink, Loader2 } from "lucide-react";
+import {
+  ChevronDown,
+  Globe,
+  Plus,
+  ExternalLink,
+  Loader2,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,6 +22,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import type { siteData, unviewedType } from "@/lib/types";
 import React from "react";
+import { useMutateSites } from "@/app/(main)/reactquery";
+import { useErrContext } from "@/app/(main)/ErrContext";
 
 interface SitesTabProps {
   sitesData: siteData[] | undefined;
@@ -36,6 +45,28 @@ function SitesTab({
   onSelectSite,
 }: SitesTabProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { deleteSite, deletingSite } = useMutateSites();
+  const { setErrBody } = useErrContext();
+
+  function confirmDeleteSite(site: siteData) {
+    setIsOpen(false);
+    setErrBody({
+      msg: `Delete ${site.site}, including its screenshots and schedule? This cannot be undone.`,
+      label: "Confirm site deletion",
+      fnName: "Delete site",
+      fn: async () => {
+        setErrBody({});
+        try {
+          await deleteSite(site);
+        } catch (error) {
+          setErrBody({
+            msg: error instanceof Error ? error.message : String(error),
+            label: "Delete Site Error!",
+          });
+        }
+      },
+    });
+  }
 
   useEffect(() => {
     console.log("In SitesTab, useEffect() ran!", { selectedSite });
@@ -95,9 +126,10 @@ function SitesTab({
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
+                className="flex items-center gap-1"
               >
                 <DropdownMenuItem
-                  className={`flex cursor-pointer items-center justify-between gap-2 ${
+                  className={`flex flex-1 cursor-pointer items-center justify-between gap-2 ${
                     site.site == selectedSite?.site ? "bg-primary/10" : ""
                   }`}
                   onClick={() => {
@@ -133,6 +165,17 @@ function SitesTab({
                     </a>
                   </div>
                 </DropdownMenuItem>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive h-8 w-8 shrink-0"
+                  disabled={deletingSite}
+                  aria-label={`Delete ${site.site}`}
+                  onClick={() => confirmDeleteSite(site)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
               </motion.div>
             );
           })}

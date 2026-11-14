@@ -24,7 +24,6 @@ import {
   deleteShot,
   getDownloadShotKeys,
   getCrons,
-  getActiveSites,
 } from "./server";
 import { delAccountRate, logRate, sessionRate } from "./redis.js";
 import {
@@ -32,7 +31,7 @@ import {
   encodeHexLowerCase,
 } from "@oslojs/encoding";
 import { sha256 } from "@oslojs/crypto/sha2";
-import { downloadProps, range, userData } from "./types";
+import { appCrons, downloadProps, range, userData } from "./types";
 import * as jose from "jose";
 import { safeCron, safeRange, safeSite } from "./utils";
 import { cronNameFromValue } from "./dateformatter";
@@ -136,14 +135,21 @@ export async function getUserData(): Promise<userData> {
   // notifications: InfiniteQuery; notepad, will have own functions.
   const { user, joined, memberTier } = await validateSession();
 
-  if (!user) return { error: "In getUserData, Unknown user" };
+  if (!user) {
+    // User is not logged in visitor
+    console.error("In getUserData, unknown user!");
+    const env = process?.env;
+    const u = [{ cron: env.VCRON!, site: env.VSITE!, active: true }];
 
-  const { maxCrons, activeSites, userSites, error } = await getActiveSites();
+    return { user: "Visitor", maxCrons: 0, userSites: u };
+  }
 
-  return { user, joined, maxCrons, activeSites, userSites, memberTier, error };
+  const { maxCrons, userSites, error } = await getUserSites({ user });
+
+  return { user, joined, maxCrons, userSites, memberTier, error };
 }
 
-export async function getNotepad(update: "update" | undefined) {}
+export async function getNotepad(update?: "update") {}
 
 //rate limit this fn
 export async function deleteAccount(password?: string) {
@@ -265,7 +271,7 @@ export async function deleteCron(safeSD: siteData) {
   if (e1) return { error: e1 };
 
   safeSD = (await getSafeSD(safeSD))!;
-  if (!safeSD) return "Unsafe parameters";
+  if (!safeSD) return { error: "Unsafe parameters" };
 
   const delProps = { safeSD, user, del: true, re: false, ...safeSD };
 
@@ -355,7 +361,7 @@ export async function getDbShotKeys({
   return await getDownloadShotKeys(p);
 }
 
-export async function getCronSchedules() {
+export async function getCronSchedules(): Promise<any> {
   const { user } = await validateSession();
   if (!user) return { error: "Unknown user" };
   return await getCrons();

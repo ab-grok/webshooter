@@ -84,16 +84,19 @@ function ShotCard({
   const copyHtml = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const hProp1 = { isHtml: true, date: shot.date };
-      const hProp2 = { ...hProp1, url: shot.shotUrl, key: shot.htmlKey };
+      const hProp1 = { url: shot.shotUrl, key: shot.htmlKey };
+      const hProp2 = { ...hProp1, isHtml: true, date: shot.date };
       const html = await getUrlBlob(hProp2);
-      if (!html) throw "Html undefined!";
+      if (!html) throw new Error("getUrlBlob did not return Html!");
       await navigator.clipboard.writeText(html.fileData as string);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (e: any) {
       console.error("in ShotCard, copyHtml: Failed to copy HTML:", e);
-      setErrBody({ msg: e.message || e, label: "Copy Html Error!" });
+      setErrBody({
+        msg: e instanceof Error ? e.message : String(e),
+        label: "Copy Html Error!",
+      });
     }
   }, []);
 
@@ -106,9 +109,9 @@ function ShotCard({
       const hProp1 = { ...hProp0, date: shot.date, isHtml: true };
 
       const html = await getUrlBlob(hProp1);
-      if (!html) throw "Could not get HTML from Download Cache!";
+      if (!html) throw new Error("Could not get HTML from Download Cache!");
       const { error } = await openInNewTab(html);
-      if (error) throw error;
+      if (error) throw new Error(String(error));
     } catch (e) {
       console.error("Failed to open html in newpage: ", e);
       //setError

@@ -268,7 +268,9 @@ export default function HomePage() {
 
   useEffect(() => {
     console.log("in HomePage, useEffect ran;");
-    if (!sitesData?.length) return;
+    if (!sitesData?.length) {
+      return;
+    }
     handleSelectSite(sitesData[0]);
     //can load userSettings.lastSite
   }, [sitesData?.length]);

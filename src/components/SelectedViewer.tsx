@@ -210,18 +210,19 @@ function SelectedViewer({
 
   const handleDownload = useCallback(async () => {
     try {
-      if (!shot) throw "Shot is undefined!";
+      if (!shot) throw new Error("Shot is undefined!");
 
       const prop = { url: shot.shotUrl, key: shot.shotKey, date: shot.date };
       const file = await getUrlBlob(prop);
-      if (!file) throw "No file in download Cache";
+      if (!file) throw new Error("getUrlBlob did not produce a file");
 
       const { error } = await download(file);
-      if (error) {
-        console.error("In handleDowwnload. Download failed: ", error);
-        //setErrBody
-      }
-    } catch (e) {}
+      if (error) throw new Error(String(error));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("In handleDownload. Download failed: ", error);
+      setErrBody({ msg: message, label: "Download Shot Error!" });
+    }
   }, [shot]);
 
   const getHtml = useCallback(async () => {

@@ -9,15 +9,15 @@ export function cn(...inputs: ClassValue[]) {
 export function safeSite(site: string, noDots?: string) {
   try {
     site = site?.trim();
-    if (!site) throw { error: "Missing parameters!" };
+    if (!site) throw new Error("Missing parameters!");
     if (!site.startsWith("http")) site = "https://" + site;
 
     const s = new URL(site);
-    if (!s) throw { error: "Couldn't parse URL" };
+    if (!s) throw new Error("Couldn't parse URL");
     const domain = s.hostname.replace("www.", "");
     const pathname = s.pathname.replace(/\/$/, "");
 
-    if (!domain.match(/(\.[a-z]{2,})$/)) throw { error: "Invalid Site" };
+    if (!domain.match(/(\.[a-z]{2,})$/)) throw new Error("Invalid Site");
 
     let ss = domain + pathname;
 
@@ -48,7 +48,7 @@ export function safeCron(cron: string) {
       if (
         !/^((\*|\d+)(\/\d+)?|\d+(-\d+)?(,(\d+(-\d+)?))*(,\d+\/\d+)?)$/.test(cF)
       )
-        throw { error: `Invalid cron field: ${cF} ` };
+        throw new Error(`Invalid cron field: ${cF} `);
 
       //Multi levels cause lists `,` can contain `/-`;
       const cFLevel1 = cF.split(/[,/-]/); //handles riange `-`, and step `/`, but cF mmay be list.
@@ -61,14 +61,15 @@ export function safeCron(cron: string) {
     const units = [59, 23, 31, 12, 7, 2199];
 
     const cronFields = cron.trim().split(/\s+/);
-    if (cronFields.length != 6) throw "Cron must contain six fields!";
+    if (cronFields.length != 6)
+      throw new Error("Cron must contain six fields!");
 
     const startingValues = [0, 0, 1, 1, 1, 2026];
     cronFields.forEach((c, i) =>
       validateCronField(c, units[i], i == 2 || i == 4, startingValues[i]),
     );
     if ((cronFields[2] == "?") == (cronFields[4] == "?"))
-      throw "Exactly one of day-of-month or day-of-week must be '?'.";
+      throw new Error("Exactly one of day-of-month or day-of-week must be '?'.");
 
     return cron.trim();
   } catch (e) {
