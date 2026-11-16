@@ -2,14 +2,14 @@
 
 import {
   delShot,
+  deleteCron,
+  getCronSchedules,
   getShots,
   getSites,
   getUserData,
   setViewed,
-  shotProp,
 } from "@/lib/actions";
-import { getCrons } from "@/lib/server";
-import { shotData, shots, siteData, userData } from "@/lib/types";
+import { appCrons, shotData, shots, siteData, userData } from "@/lib/types";
 import {
   InfiniteData,
   useInfiniteQuery,
@@ -24,15 +24,24 @@ export function useMutateDel(site: string) {
 
   const mutateShot = useMutation<
     { error: string | null },
-    { error: string },
+    Error,
     number[],
-    { prevData: any }
+    { prevData: InfiniteData<shots, unknown> | undefined }
   >({
-    //ids passed on invoke
-    mutationFn: async (ids) => await delShot({ ids, site }), //returns {error} -- confirm error checking is useMutateDel.error!
+    mutationFn: async (ids) => {
+      const res = await delShot({ ids, site });
+      if (!res || (typeof res.error !== "string" && res.error !== null))
+        throw new Error("Invalid delete-shot response.");
+      const { error } = res;
+      if (error) throw new Error(error);
+      return { error: null };
+    },
     onMutate: async (ids) => {
       await queryClient.cancelQueries({ queryKey: [site, "shots"] }); //Cancel in-flight fetches
-      const prevData = await queryClient.getQueryData([site, "shots"]);
+      const prevData = queryClient.getQueryData<InfiniteData<shots, unknown>>([
+        site,
+        "shots",
+      ]);
 
       // queryClient.setQueryData<InfiniteData<shots, { id: any; next: boolean }>> -- this is the correct typing for TPageParam but I reckon 'unknown' is inconsequential?
       queryClient.setQueryData<InfiniteData<shots, unknown>>(
@@ -43,7 +52,7 @@ export function useMutateDel(site: string) {
             ...oldData,
             pages: oldData.pages.map((page) => ({
               ...page,
-              shotsData: page.shotsData.filter((s) => !ids?.includes(s.id)),
+              shotsData: page.shotsData.filter((s) => !ids.includes(s.id)),
             })),
           };
         },
@@ -51,9 +60,8 @@ export function useMutateDel(site: string) {
 
       return { prevData }; //Is available in context to reset data db request error after optimistic update;
     },
-    onError: (err, ids, context) => {
+    onError: (_error, _ids, context) => {
       queryClient.setQueryData([site, "shots"], context?.prevData);
-      return err;
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: [site, "shots"] }); //why invalidateQueries()?
@@ -62,11 +70,6 @@ export function useMutateDel(site: string) {
 
   return {
     mutateDelErr: mutateShot.error,
-    //mutateDelErr reads as ```(property) mutateDelErr: {
-    // error: string;
-    //} | null
-    //```
-    //But delShot returns {error} which I reckon is referenced by mutateShot. Or is there a default second error nesting made by mutateshot?
     mutatingDel: mutateShot.isPending,
     delReset: mutateShot.reset,
     mutateDel: mutateShot.mutateAsync,
@@ -149,14 +152,23 @@ export function useMutateViewed(site: string) {
 
   const mutateViewed = useMutation<
     { error: null | string },
-    { error: string },
+    Error,
     { ids: number[] },
-    { prevData: any }
+    { prevData: InfiniteData<shots, unknown> | undefined }
   >({
-    mutationFn: async ({ ids }) => await setViewed({ ids, site }),
+    mutationFn: async ({ ids }) => {
+      const res = await setViewed({ ids, site });
+      if (!res || ("error" in res && typeof res.error == "string"))
+        throw new Error(res?.error || "Invalid setViewed Return!");
+
+      return { error: null };
+    },
     onMutate: async ({ ids }) => {
       await queryClient.cancelQueries({ queryKey: [site, "shots"] });
-      const prevData = await queryClient.getQueryData([site, "shots"]);
+      const prevData = queryClient.getQueryData<InfiniteData<shots, unknown>>([
+        site,
+        "shots",
+      ]);
 
       queryClient.setQueryData<InfiniteData<shots, unknown>>(
         [site, "shots"],
@@ -166,8 +178,8 @@ export function useMutateViewed(site: string) {
             ...oldData,
             pages: oldData.pages.map((page) => ({
               ...page,
-              shotsData: page.shotsData.map((s: shotData) =>
-                ids?.includes(s.id) ? { ...s, viewed: true } : s,
+              shotsData: page.shotsData.map((s) =>
+                ids.includes(s.id) ? { ...s, viewed: true } : s,
               ),
             })),
           };
@@ -176,9 +188,8 @@ export function useMutateViewed(site: string) {
 
       return { prevData };
     },
-    onError: async (err, vars, context) => {
-      await queryClient.setQueryData([site, "shots"], context?.prevData);
-      return err;
+    onError: (_error, _vars, context) => {
+      queryClient.setQueryData([site, "shots"], context?.prevData);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: [site, "shots"] });
@@ -186,7 +197,7 @@ export function useMutateViewed(site: string) {
   });
 
   return {
-    mutateViewed: mutateViewed.mutateAsync,
+    mutateViewed: mutateViewed.mutateAsync, // Q: considering sending a success message from server. Does mutateViewed return the value from mutationFn?
     mutateViewedErr: mutateViewed.error,
     mutatingViewed: mutateViewed.isPending,
     resetViewed: mutateViewed.reset, //clears flags: errors and prevData
@@ -195,14 +206,50 @@ export function useMutateViewed(site: string) {
 
 // Set Confirm Dialog before deleting sites -- as fn drops column including all shots and cron.
 export function useMutateSites() {
-  //use to delete or add sites and update cache
+  const queryClient = useQueryClient();
+
+  const deleteSiteMutation = useMutation<
+    siteData,
+    Error,
+    siteData,
+    { previousSites: siteData[] | undefined }
+  >({
+    mutationFn: async (site) => {
+      const res = await deleteCron(site);
+      if (!res || ("error" in res && typeof res?.error == "string"))
+        throw new Error(res?.error || "Invalid deleteCron Response");
+
+      return site;
+    },
+    onMutate: async (site) => {
+      await queryClient.cancelQueries({ queryKey: ["sites"] });
+      const previousSites = queryClient.getQueryData<siteData[]>(["sites"]);
+      queryClient.setQueryData<siteData[]>(["sites"], (allSites) =>
+        allSites?.filter((currSite) => currSite.site !== site.site),
+      );
+      return { previousSites };
+    },
+    onError: (_error, _site, context) => {
+      queryClient.setQueryData(["sites"], context?.previousSites);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["sites"] });
+    },
+  });
+
+  return {
+    deleteSite: deleteSiteMutation.mutateAsync,
+    deleteSiteError: deleteSiteMutation.error,
+    deletingSite: deleteSiteMutation.isPending,
+    resetDeleteSite: deleteSiteMutation.reset,
+  };
 }
 
 //Fetches user's screenshot data (shot url + html url)
 export function useQueryShots(site: string) {
   const shotQuery = useInfiniteQuery<
     shots,
-    { error: string },
+    Error,
     InfiniteData<shots>,
     [string, string],
     { id: any; next: boolean }
@@ -211,9 +258,14 @@ export function useQueryShots(site: string) {
     queryFn: async ({ pageParam }) => {
       const { id, next } = pageParam;
       //when error: all props besides error will be null;
-      const { error, ...shots } = await getShots({ id, next, site });
-      if (error) throw { error };
-      return shots;
+      const res = await getShots({ id, next, site });
+      if (!res) throw new Error("No shots response returned.");
+      const { error, ...shotsQueryData } = res;
+      if (error) throw new Error(error);
+
+      if (isNotUserShots(shotsQueryData))
+        throw new Error("Invalid shotData shape.", { cause: shotsQueryData });
+      return shotsQueryData;
     },
     getNextPageParam: (lastPage) => ({
       id: lastPage.nextCursor,
@@ -224,7 +276,7 @@ export function useQueryShots(site: string) {
       next: false,
     }),
     initialPageParam: { id: null, next: true },
-    staleTime: 60000 * 10, //increasing staleTime -- refetches do not need to be performed in auto -- will use refetch to handle viewed.
+    staleTime: 1000 * 60 * 60 * 24 * 3, //increasing staleTime to 3 days -- refetches do not even need to be performed at all.
   });
 
   return {
@@ -243,14 +295,17 @@ export function useQueryShots(site: string) {
 
 // Get all available crons
 export function useQueryCrons() {
-  const cronsQuery = useQuery<
-    { crons: Array<{ cron: string }> },
-    { error: string }
-  >({
+  const cronsQuery = useQuery<{ crons: Array<{ cron: string }> }, Error>({
     queryKey: ["sites"],
     queryFn: async () => {
-      const { error, crons } = await getCrons();
-      if (error) throw { error };
+      //change to getCronSchedules
+      const res = (await getCronSchedules()) as appCrons;
+      if (!res || ("error" in res && typeof res.error == "string"))
+        throw new Error(res.error || "No cron response returned.");
+
+      const { crons } = res;
+      if (!Array.isArray(crons) || !crons.every(isAppCron))
+        throw new Error("Invalid cron schedules response.");
       return { crons };
     },
     staleTime: Infinity,
@@ -259,20 +314,23 @@ export function useQueryCrons() {
   return {
     cronsLoading: cronsQuery.isLoading,
     cronsError: cronsQuery.error,
-    crons: cronsQuery.data,
+    crons: cronsQuery.data?.crons,
     cronsFetching: cronsQuery.isFetching,
     cronsRefetch: cronsQuery.refetch,
   };
 }
 
 // Get user data
-export function useUserData() {
+export function useQueryUserData() {
   const userQuery = useQuery<userData>({
     queryKey: ["userData"],
     queryFn: async () => {
-      const { error, ...rest } = await getUserData();
-      if (error) throw error;
-      return rest;
+      const res = (await getUserData()) || {};
+      const { error, ...userData } = res;
+      if (error) throw new Error(error);
+      if (typeof userData?.user !== "string")
+        throw new Error("Invalid getUserData response.");
+      return userData;
     },
     staleTime: Infinity,
   });
@@ -287,15 +345,18 @@ export function useUserData() {
 // Get the sites
 export function useQuerySites() {
   //isFetching = true when fetching in background.
-  const sitesQuery = useQuery<siteData[], { error: string }>({
+  const sitesQuery = useQuery<siteData[], Error>({
     queryKey: ["sites"],
     queryFn: async () => {
-      const { userSites } = await getSites();
+      const res = await getSites();
+      const userSites: unknown = res?.userSites;
 
-      if (!userSites) throw { error: "No userSites!" };
+      if (!Array.isArray(userSites))
+        throw new Error("No user sites were returned.");
+      if (!userSites.every(isSiteData))
+        throw new Error("Invalid userSite shape!");
 
-      console.log("In useQuerSites", { userSites });
-      return userSites as siteData[];
+      return userSites;
     },
     staleTime: Infinity,
   });
@@ -308,3 +369,44 @@ export function useQuerySites() {
     sitesRefetch: sitesQuery.refetch,
   };
 }
+
+// ===========> Helpers
+const isShotData = (shot: unknown): shot is shotData =>
+  typeof shot === "object" &&
+  shot !== null &&
+  "id" in shot &&
+  typeof shot.id === "number" &&
+  "date" in shot &&
+  typeof shot.date === "string" &&
+  "viewed" in shot &&
+  typeof shot.viewed === "boolean" &&
+  "htmlKey" in shot &&
+  typeof shot.htmlKey === "string" &&
+  "shotKey" in shot &&
+  typeof shot.shotKey === "string" &&
+  "shotUrl" in shot &&
+  typeof shot.shotUrl === "string" &&
+  "htmlUrl" in shot &&
+  typeof shot.htmlUrl === "string";
+
+const isNotUserShots = (shotsQueryData: any) =>
+  !Array.isArray(shotsQueryData.shotsData) ||
+  !shotsQueryData.shotsData.every(isShotData) ||
+  typeof shotsQueryData.noMoreNext !== "boolean" ||
+  typeof shotsQueryData.noMorePrev !== "boolean" ||
+  (shotsQueryData.shotsData.length > 0 &&
+    (typeof shotsQueryData.nextCursor !== "number" ||
+      typeof shotsQueryData.prevCursor !== "number"));
+
+const isAppCron = (cron: any): cron is { cron: string } =>
+  "cron" in cron && typeof cron.cron == "string";
+
+const isSiteData = (site: unknown): site is siteData =>
+  typeof site === "object" &&
+  site !== null &&
+  "site" in site &&
+  typeof site.site === "string" &&
+  "cron" in site &&
+  typeof site.cron === "string" &&
+  "active" in site &&
+  typeof site.active === "boolean";

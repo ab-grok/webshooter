@@ -1021,7 +1021,7 @@ export async function getCrons() {
   // Returns an array of available cron schedules; can handle empty crons in frontend -- no need for '!res' throw
   try {
     const cronsArr = await db`select cron from private.crons`;
-    const crons = cronsArr.map((c) => ({ cron: c.cronValue }));
+    const crons = cronsArr.map((c) => ({ cron: c.cron.cronValue }));
     return { crons };
   } catch (e) {
     console.error("Error in getCrons", e);

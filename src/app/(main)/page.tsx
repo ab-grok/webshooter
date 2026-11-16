@@ -12,7 +12,7 @@ import {
   timePeriod,
   unviewedType,
 } from "@/lib/types";
-import { useQuerySites, useUserData } from "./reactquery";
+import { useQuerySites, useQueryUserData } from "./reactquery";
 import Shots from "@/components/Shots";
 import { usePreserveScroll } from "@/lib/usePreserveScroll";
 import Navbar from "@/components/Navbar";
@@ -28,7 +28,7 @@ export default function HomePage() {
   const [downloadSelectedShots, setDownloadSelectedShots] = useState(0); //pass keys to mutateDownload
   const preserveScroll = usePreserveScroll(); // passed down to shots>gallery
 
-  const { userData, userDataError, userDataLoading } = useUserData(); //when !userData these dont work: delete*, viewSelectedShots, handleAddSite
+  const { userData, userDataError, userDataLoading } = useQueryUserData(); //when !userData these dont work: delete*, viewSelectedShots, handleAddSite
   const { sitesLoading, sitesError, sitesRefetch, sitesData } = useQuerySites(); //sitesRefetch => {data, error, isError, isSuccess}
   const [localUnviewed, setLocalUnviewed] = useState<number[]>(); //shotIds[] // Is this necessary -- now used in allSitesUnvieweds, previously used elsewhere
 

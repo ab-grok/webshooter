@@ -23,7 +23,7 @@ export function useMutateDel(site: string) {
   const queryClient = useQueryClient();
 
   const mutateShot = useMutation<
-    { error: string | null },
+    { error: null },
     Error,
     number[],
     { prevData: InfiniteData<shots, unknown> | undefined }
@@ -276,7 +276,7 @@ export function useQueryShots(site: string) {
       next: false,
     }),
     initialPageParam: { id: null, next: true },
-    staleTime: 1000 * 60 * 60 * 24, //increasing staleTime to 1 day -- refetches do not even need to be performed at all.
+    staleTime: 1000 * 60 * 60 * 24 * 3, //increasing staleTime to 3 days -- refetches do not even need to be performed at all.
   });
 
   return {
@@ -296,7 +296,7 @@ export function useQueryShots(site: string) {
 // Get all available crons
 export function useQueryCrons() {
   const cronsQuery = useQuery<{ crons: Array<{ cron: string }> }, Error>({
-    queryKey: ["sites"],
+    queryKey: ["crons"],
     queryFn: async () => {
       //change to getCronSchedules
       const res = (await getCronSchedules()) as appCrons;
@@ -321,7 +321,7 @@ export function useQueryCrons() {
 }
 
 // Get user data
-export function useUserData() {
+export function useQueryUserData() {
   const userQuery = useQuery<userData>({
     queryKey: ["userData"],
     queryFn: async () => {

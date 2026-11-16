@@ -98,7 +98,7 @@ function Shots({
 
   //hooks
   const { download, openInNewTab } = useDownloader(); //custom downloader
-  const { shotsLoading, shotsError, shots, ...r } = useQueryShots(site);
+  const { shotsLoading, shotsError, shots, ...r } = useQueryShots(site); //shots entry point
   const { shotsRefetch, shotsRefetching, fetchNextShots, fetchPrevShots } = r;
   const { mutateDelErr, mutateDel, delReset, mutatingDel } = useMutateDel(site); //setShots deleting
   const { setErrBody } = useErrContext();
