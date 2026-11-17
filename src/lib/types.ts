@@ -102,8 +102,8 @@ export type optimisticUnvieweds = {
 };
 
 export type selectedShot = {
-  id?: number;
-  swiperId?: number;
+  id?: number; //db id
+  swiperId?: number; // can use this for both swiperId and manual shotsCount ID in grid mode
   single?: boolean; // clear other selected shots
 };
 
@@ -125,3 +125,5 @@ export type appCrons = {
   crons: { cron: string }[];
   error: string;
 };
+
+export type mutateSite = { siteData: siteData; del?: boolean };

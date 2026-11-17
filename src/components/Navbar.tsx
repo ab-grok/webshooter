@@ -2,7 +2,13 @@
 // TO DO: Can try animatePresence to animate exit of Auth/CronScheduler so that the h/w of components can be interpolated instead of changed instantly;
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -46,6 +52,7 @@ interface NavbarProps {
   localUnviewed: number[] | undefined;
   userData: userData | undefined;
   currId?: { first: number | undefined; last: number | undefined };
+  setSelectedShots: (selectedShots: []) => void;
   onSelectSite: (site: siteData) => void;
   onAddSite: () => void;
   handleRefresh: () => void;
@@ -70,6 +77,7 @@ function Navbar({
   sitesLoading,
   onAddSite,
   onSelectSite,
+  setSelectedShots,
   onDownloadCurrShotAndAfter,
   onDownloadCurrShotAndBefore,
   onDownloadSelectedShots,
@@ -85,6 +93,12 @@ function Navbar({
   const [siteData, setSiteData] = useState<siteData>();
   const [resetForm, setResetForm] = useState(0); // set to true after scheduling cron on sign up
   const navbarRef = useRef<HTMLDivElement>(null);
+
+  // Create button for Clear Shots that is only active when shots are selected.
+  // set all selectedShots to null
+  const clearSelectedShots = useCallback(() => {
+    setSelectedShots([]);
+  }, []);
 
   //recomputes per site or allUnviewed.unvieweds change -- useMemo prevents irrelevant recomputes from component rerenders and other allUnviewed changes
   const selectedSiteUnviewed = useMemo(() => {

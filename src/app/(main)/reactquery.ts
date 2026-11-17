@@ -2,14 +2,22 @@
 
 import {
   delShot,
-  deleteCron,
+  delSite,
   getCronSchedules,
   getShots,
   getSites,
   getUserData,
+  scheduleShot,
   setViewed,
 } from "@/lib/actions";
-import { appCrons, shotData, shots, siteData, userData } from "@/lib/types";
+import {
+  appCrons,
+  mutateSite,
+  shotData,
+  shots,
+  siteData,
+  userData,
+} from "@/lib/types";
 import {
   InfiniteData,
   useInfiniteQuery,
@@ -204,29 +212,52 @@ export function useMutateViewed(site: string) {
   };
 }
 
-// Set Confirm Dialog before deleting sites -- as fn drops column including all shots and cron.
+// Add or delete sites
 export function useMutateSites() {
   const queryClient = useQueryClient();
 
   const deleteSiteMutation = useMutation<
     siteData,
     Error,
-    siteData,
+    mutateSite,
     { previousSites: siteData[] | undefined }
   >({
-    mutationFn: async (site) => {
-      const res = await deleteCron(site);
-      if (!res || ("error" in res && typeof res?.error == "string"))
-        throw new Error(res?.error || "Invalid deleteCron Response");
+    //Q: I thought mutationFn expected args from TData: deleteSite? why it throws errror
+    mutationFn: async ({ siteData, del }) => {
+      if (!isSiteData(siteData)) throw new Error("Invalid Site Data Shape!");
 
-      return site;
+      if (del) {
+        const res = await delSite(siteData);
+        if (!res || ("error" in res && typeof res?.error == "string"))
+          throw new Error(res?.error || "Invalid deleteSite Response");
+      } else {
+        const res = await scheduleShot(siteData);
+        if (!res || ("error" in res && typeof res?.error == "string"))
+          throw new Error(res?.error || "Invalid addSite Response");
+      }
+      return siteData;
     },
-    onMutate: async (site) => {
+    onMutate: async ({ siteData, del }) => {
+      if (!isSiteData(siteData)) throw new Error("Invalid Site Data Shape!");
+
       await queryClient.cancelQueries({ queryKey: ["sites"] });
       const previousSites = queryClient.getQueryData<siteData[]>(["sites"]);
-      queryClient.setQueryData<siteData[]>(["sites"], (allSites) =>
-        allSites?.filter((currSite) => currSite.site !== site.site),
-      );
+
+      if (del)
+        // Filter out site on delete
+        queryClient.setQueryData<siteData[]>(["sites"], (allSites) =>
+          allSites?.filter((currSite) => currSite.site !== siteData.site),
+        );
+      // Include site to cache on add
+      else {
+        if (previousSites?.some((s) => s.site == siteData.site))
+          throw new Error("Site Exists, Change cron instead!");
+
+        queryClient.setQueryData<siteData[]>(["sites"], (allSites) => [
+          ...(allSites || []),
+          siteData,
+        ]);
+      }
       return { previousSites };
     },
     onError: (_error, _site, context) => {
@@ -237,8 +268,17 @@ export function useMutateSites() {
     },
   });
 
+  function addSite(siteData: siteData) {
+    return deleteSiteMutation.mutateAsync({ siteData });
+  }
+
+  function deleteSite(siteData: siteData) {
+    return deleteSiteMutation.mutateAsync({ siteData, del: true });
+  }
+
   return {
-    deleteSite: deleteSiteMutation.mutateAsync,
+    addSite, //Q: I reckon I can still do await site?
+    deleteSite, // Q: this requires await deleteSite? //Both return Promise<siteData>
     deleteSiteError: deleteSiteMutation.error,
     deletingSite: deleteSiteMutation.isPending,
     resetDeleteSite: deleteSiteMutation.reset,
@@ -276,7 +316,10 @@ export function useQueryShots(site: string) {
       next: false,
     }),
     initialPageParam: { id: null, next: true },
-    staleTime: 1000 * 60 * 60 * 24 * 3, //increasing staleTime to 3 days -- refetches do not even need to be performed at all.
+    // increasing staleTime to 1 hour -- this is to recompute noMoreNext after all recent shots
+    // have been fetched, this may require capturePosition
+    // since refetching pages may include more shots to recent <20 shots page.
+    staleTime: 1000 * 60 * 60,
   });
 
   return {

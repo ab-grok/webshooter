@@ -146,9 +146,9 @@ export default function HomePage() {
     setLocalUnviewed(unvieweds);
   }, []);
 
-  // decrement optimisticViewed by 1 when shot viewed or unvieweds when multiShots are deleted
-  // -- will pass to components which view shots
-  // Old  -- Will del
+  // // Old  -- Will del
+  // // decrement optimisticViewed by 1 when shot viewed or unvieweds when multiShots are deleted
+  // // -- will pass to components which view shots
   // const handleOptimisticViewed = useCallback(
   //   ({ site, unvieweds }: unviewedType) => {
   //     if (!site || !selectedSite?.site) {
@@ -316,7 +316,7 @@ export default function HomePage() {
         onDownloadTimePeriod={setDownloadTimePeriod}
         userData={userData}
         currId={currId}
-        // setSelectedShots={setSelectedShots} // will need this to unselect all shots
+        setSelectedShots={setSelectedShots} // will need this to unselect all shots
         onDownloadSelectedShots={setDownloadSelectedShots}
         onDownloadCurrShotAndAfter={setDownloadCurrShotAndAfter}
         onDownloadCurrShotAndBefore={setDownloadCurrShotAndBefore}

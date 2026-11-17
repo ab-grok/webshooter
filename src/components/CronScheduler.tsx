@@ -31,6 +31,7 @@ import { safeCron, safeSite } from "@/lib/utils";
 import { scheduleShot } from "@/lib/actions";
 import { useErrContext } from "@/app/(main)/ErrContext";
 import { cronToText, months, weekDays } from "@/lib/dateformatter";
+import { useQueryCrons } from "@/app/(main)/reactquery";
 
 interface cronScheduler {
   userData: userData | undefined;
@@ -140,6 +141,13 @@ function CronScheduler({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null); //displayed in interface.
   const { setErrBody } = useErrContext();
+  const { crons } = useQueryCrons();
+
+  // Existing App crons
+  const appCrons = useMemo(() => {
+    if (!crons) return [];
+    return crons;
+  }, [crons]);
 
   // Memoize cron expression
   const cron = useMemo(() => {
@@ -179,6 +187,7 @@ function CronScheduler({
     setIsSubmitting(true);
     setError(null);
 
+    // Use useMutateSites from reactquery.ts
     //On error: Display danger notification
     const { error } = await scheduleShot({ site, cron });
     if (error) {

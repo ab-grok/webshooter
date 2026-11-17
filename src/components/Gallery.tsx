@@ -110,30 +110,46 @@ function Gallery({
     return shots.pages.at(-1)?.noMoreNext;
   }, [shots]);
 
-  //global effect for restorePositon on shot change -- position captured per slide change.
-  // Uses firstDeledShot for restoring to previous id after delShot -- may need change if grid layout / manual scroll
-  //on delShot fail: effect retriggers refixing optimstically deled shots and setting to activeIndex from capturePosition -- good.
-  // Else block: non delshot shots change: uses addedCount ( only useful for prepended shots);
+  //0. I wonder if framer motion's layout/layout scroll renders this obsolete. Certainly for grid layout. not sure for swiper additions
+  //1. global effect for restorePositon on shot change -- position is captured on every slide swipe.
+  //2. Uses first DeledShot for restoring to previous id after delShot -- may need change if grid layout / manual scroll
+  // - If grid layout. framer layout/layout Scroll should work for preserving scroll position on prepending
+  //3. on delShot fail:  optimstically deled shots are restored retriggering effect which sets to activeIndex from capturePosition
+  // - not sure this occurs since activeIndex is changed on delShots, but not relevant since the readded shots will be appended, not changin the slide/grid scroll position.
+  //4. Else block: non delshot shots change: uses addedCount ( only useful for prepended shots);
   useEffect(() => {
-    if (!shots?.pages?.length) return;
-
-    if (Number(firstDeledShot)) {
-      if (!selectedShots.length) return;
-
-      let prevShotId =
-        Math.min(...selectedShots.map((s) => s.swiperId!).filter(Boolean)) - 1;
-      prevShotId = prevShotId >= 0 ? prevShotId : 0;
-
-      onSelectedShots([]); //runs after optiistic del
-      setFirstDeledShot(undefined);
-
-      //at this point shots have been deled -- no need for requestAnimationFrame to wait for DOM to update before restoring position -- is this concept of requestAnimationFrame accurate or perhaps the goal to restore position seamlessly is simply useLayoutEffect no requestAimationFrame in talks?
-      const restored = restorePosition({ site, prevShotId });
-      if (!restored) console.error("Failed to restore ");
-    } else {
-      restorePosition({ site, addedCount });
-      setAddedCount(0);
+    if (!shots?.pages?.length) {
+      console.log("Resore position Effect ran; No shots; Exiting effect...");
+      return;
     }
+
+    try {
+      // This requires firstDeledShot be set on delShot -- check
+      if (Number(firstDeledShot)) {
+        // SelectedShots should be populated if deleting a shot
+        if (!selectedShots?.length) return;
+
+        let prevShotId =
+          Math.min(...selectedShots.map((s) => s.swiperId!).filter(Boolean)) -
+          1;
+        //prevId should be 1 before first selected shot, but if that's id=0, then leave as prevShot id
+        if (!prevShotId)
+          throw new Error(
+            `selectedShots did not have a swiperId value! ${selectedShots}`,
+          );
+        prevShotId = prevShotId >= 0 ? prevShotId : 0;
+
+        onSelectedShots([]); //runs after optiistic del
+        setFirstDeledShot(undefined);
+
+        //at this point shots have been deled -- no need for requestAnimationFrame to wait for DOM to update before restoring position -- is this concept of requestAnimationFrame accurate or perhaps the goal to restore position seamlessly is simply useLayoutEffect no requestAimationFrame in talks?
+        const restored = restorePosition({ site, prevShotId });
+        if (!restored) console.error("Failed to restore ");
+      } else {
+        restorePosition({ site, addedCount });
+        setAddedCount(0);
+      }
+    } catch (e) {}
   }, [shots]);
 
   useEffect(() => {
@@ -216,9 +232,16 @@ function Gallery({
       try {
         capturePosition(site);
         if (!ids) {
-          if (!selectedShots.length) return;
-          setFirstDeledShot(selectedShots[0].swiperId!);
+          // If not ids then fn triggered from context or navbar, then check selectedShots
+          if (!selectedShots.length)
+            throw new Error(
+              "Tried to delete shots but selectedShots array is empty!",
+            );
 
+          const id = selectedShots[0].swiperId;
+          setFirstDeledShot(id);
+
+          // Find out if id is shot ID on db or shot count -- cannot use db id in my capture position module
           ids = selectedShots.map((s) => s.id!);
 
           onDeleteShot({ ids });
@@ -257,7 +280,9 @@ function Gallery({
       const { error, data } = await fetchPrevShots();
       if (error) throw error;
 
-      //Prepended shots which means orginal position shifted forwards (or upwards when grid layout)
+      //Prepended shots which means orginal position shifted forward (or upward when grid layout)
+      // -- need to get it to visible slide prior prepended
+      // -- What's the function of setAddedCount?
       setAddedCount(data?.pages[0].shotsData.length!);
     } catch (e: any) {
       console.error("In onScrollDown: ", e);
@@ -270,6 +295,8 @@ function Gallery({
 
   const onReachEnd = useCallback(async () => {
     try {
+      //This seems problematic since new shots inserted in db after you fetched all recent shots will not be known to exist;
+      // But fortunately, auto fetches from db fire when 'noMoreNext()'
       if (noMoreNext) throw new Error("You're up to date.");
       if (fetchingNextShots) throw new Error("Fetching next shots.");
 
@@ -287,9 +314,10 @@ function Gallery({
     }
   }, [noMoreNext, fetchingNextShots]);
 
+  // In Swiper mode
   //computes the onEnd/onStart-Reached of the slides and fetches old/new for either
-  //Logic change after implementing slides as grid?: get container height and calc container top reached and loading next and container bottom reached and load prev shots (use requestAnimFrame);
-  //implemented toggleSelectShot here even if not opened, since 'slide change' = activeIndex change -- is assumption correct?
+  //Logic should change in grid mode: can calculate container height/bottom and viewport top/bottom top to get onStart/onEnd reach;
+  //call toggleSelectShot here on every slide change, since 'slide change' = activeIndex change ?
   const handleSlideChange = useCallback(
     //Problematic. Can trigger slideTo unnecesarily on rapid scrolling -- switch to layout and layout scroll.
     async (swiper: SwiperType) => {
@@ -321,14 +349,17 @@ function Gallery({
   //Passed to ShotCard for onSelect shot (multiShots); Updated here on slideChange (single shot);
   const toggleSelectShot = useCallback(
     ({ id, swiperId, single }: selectedShot) => {
-      //single: clears prevArray;
+      //single: means a single shot was selected; clears previous selections;
       //looking to pass id to capturePosition on onOpenedChange or selectedShots (from highest swiperID)
 
       onSelectedShots((shot) => {
         if (single) return [{ id, swiperId }];
 
+        // Unselect shot when already slected
         const wasSelected = shot.find((s) => s.id == id);
         if (wasSelected) return shot.filter((s) => s.id != id);
+
+        // Shot is not selected, add to selectedShots
         return [...shot, { id, swiperId }];
       });
     },

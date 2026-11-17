@@ -264,7 +264,7 @@ export async function deactivateCron(site: string, cron: string) {
   return { error: e3 };
 }
 
-export async function deleteCron(safeSD: siteData) {
+export async function delSite(safeSD: siteData) {
   //This will delete all shot records;
 
   const { user, error: e1 } = await validateSession();
@@ -281,6 +281,7 @@ export async function deleteCron(safeSD: siteData) {
   const { error: e3 } = await updateUserSites(delProps);
   if (e3) return { error: e3 };
 
+  // removes site from cronData array
   const { error: e4, delWorker: dW } = await updateCronTable(delProps);
 
   if (dW) {

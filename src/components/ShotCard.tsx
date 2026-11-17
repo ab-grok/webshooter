@@ -132,7 +132,7 @@ function ShotCard({
   //getting active shot on delShot not dependent on slides change, cause selectedShots will not trigger slideChange
 
   //create a select button on card
-  const handleSelectShot = () => toggleSelect({ id: shot.id });
+  const handleSelectShot = () => toggleSelect({ id: shot.id, swiperId });
 
   //Create a delete button on card
   const handleDelete = () => onDelete({ ids: shot.id });
